@@ -96,6 +96,14 @@ void Sniffer::capture_loop(Session* session, std::string filename) {
         // Save to file
         pcap_dump((u_char*)pcap_dumper, header, packet);
 
+        // --- PACKET FILTERING ---
+        // We only care about IPv4 packets for now.
+        // The ethertype for IPv4 is 0x0800 (ETHERTYPE_IP).
+        struct ethhdr* eth = (struct ethhdr*)packet;
+        if (ntohs(eth->h_proto) != ETHERTYPE_IP) {
+            continue;
+        }
+
         // Parse and Print
         struct ip* ip_header = (struct ip*)(packet + 14); // Skip Ethernet header (14 bytes)
         

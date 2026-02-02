@@ -21,6 +21,7 @@ public:
 private:
     std::vector<std::thread> attack_threads;
     std::atomic<bool> stop_flag;
+    std::string interface;
 
     // The core ARP spoofing logic, now runs in a loop
     void spoof_loop(std::string iface, std::string target_ip, std::string spoof_ip, std::string target_mac);

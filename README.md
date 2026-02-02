@@ -71,10 +71,10 @@ Mischiever replaces manual lookups with context-aware automation:
 
 # For Debian / Kali / Ubuntu:
 sudo apt-get update
-sudo apt-get install libpcap-dev libsqlite3-dev build-essential
+sudo apt-get install libpcap-dev libsqlite3-dev build-essential iptables
 
 # For Arch Linux (Manjaro / EndeavourOS):
-sudo pacman -S libpcap sqlite base-devel
+sudo pacman -S libpcap sqlite base-devel iptables
 # (Optional) If you use Wayland, install 'imv' for image support:
 sudo pacman -S imv
 

