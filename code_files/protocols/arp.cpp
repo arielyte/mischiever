@@ -12,14 +12,18 @@
 
 #include "../headers/arp.h"
 
-ARP::ARP() : stop_flag(false) {}
+ARP::ARP(bool forwarding_enabled) : stop_flag(false), forwarding_enabled(forwarding_enabled) {}
 
 ARP::~ARP() {
     stop();
 }
 
 std::string ARP::get_name() {
-    return "ARP Spoof";
+    if (this->forwarding_enabled) {
+        return "ARP Spoof";
+    } else {
+        return "ARP Blackhole";
+    }
 }
 
 // --- NEW HELPER: TOGGLE IP FORWARDING ---
@@ -43,15 +47,16 @@ void ARP::stop() {
     }
     attack_threads.clear();
     
-    // Disable IP Forwarding when attack stops to clean up
-    set_ip_forwarding("0");
-
-    // Clean up firewall rules
-    if (!this->interface.empty()) {
-        std::string rule1 = "iptables -D FORWARD -i " + this->interface + " -j ACCEPT";
-        std::string rule2 = "iptables -D FORWARD -o " + this->interface + " -j ACCEPT";
-        system(rule1.c_str());
-        system(rule2.c_str());
+    // Disable IP Forwarding and clean up firewall rules
+    if (this->forwarding_enabled) {
+        set_ip_forwarding("0");
+        if (!this->interface.empty()) {
+            std::string rule1 = "iptables -D FORWARD -i " + this->interface + " -j ACCEPT";
+            std::string rule2 = "iptables -D FORWARD -o " + this->interface + " -j ACCEPT";
+            system(rule1.c_str());
+            system(rule2.c_str());
+            this->interface.clear(); // Prevent cleanup from running twice
+        }
     }
 }
 
@@ -61,16 +66,21 @@ void ARP::run(Session* session) {
         return;
     }
 
-    // Enable IP Forwarding BEFORE starting the threads
-    // This allows packets to flow through your machine immediately
-    set_ip_forwarding("1");
+    // --- DYNAMIC BEHAVIOR BASED ON MODE ---
+    if (this->forwarding_enabled) {
+        // "ARP Spoof" (Spy) Mode: Enable forwarding to intercept traffic
+        set_ip_forwarding("1");
 
-    // Store interface and add firewall rules
-    this->interface = session->interface;
-    std::string rule1 = "iptables -A FORWARD -i " + this->interface + " -j ACCEPT";
-    std::string rule2 = "iptables -A FORWARD -o " + this->interface + " -j ACCEPT";
-    system(rule1.c_str());
-    system(rule2.c_str());
+        // Store interface and add firewall rules
+        this->interface = session->interface;
+        std::string rule1 = "iptables -A FORWARD -i " + this->interface + " -j ACCEPT";
+        std::string rule2 = "iptables -A FORWARD -o " + this->interface + " -j ACCEPT";
+        system(rule1.c_str());
+        system(rule2.c_str());
+    } else {
+        // "ARP Blackhole" (Kill) Mode: Ensure forwarding is off
+        set_ip_forwarding("0");
+    }
 
     stop_flag = false;
     

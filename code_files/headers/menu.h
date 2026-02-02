@@ -36,7 +36,7 @@ private:
     // Sub-menu navigation
     void show_attack_modules_menu();
     void show_floods_menu();
-    void show_spoofings_menu();
+    void show_mitm_menu();
     void show_attack_history();
     void show_dos_menu();
 

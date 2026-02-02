@@ -29,8 +29,9 @@ void Menu::run() {
     // This allows us to add 50 new attacks without changing the main loop logic.
     // We use unique_ptr to handle memory automatically (no more manual 'delete').
     attack_modules.push_back(std::unique_ptr<SYN>(new SYN()));
-    attack_modules.push_back(std::unique_ptr<ARP>(new ARP()));
     attack_modules.push_back(std::unique_ptr<ICMP>(new ICMP()));
+    attack_modules.push_back(std::unique_ptr<ARP>(new ARP(true)));      // ARP Spoof (Spy Mode)
+    attack_modules.push_back(std::unique_ptr<ARP>(new ARP(false)));     // ARP Blackhole (Kill Mode)
 
     // Set default interface automatically if possible
     std::string default_iface = session.helper->get_iface();
@@ -139,12 +140,12 @@ void Menu::display_main_menu() {
 
 void Menu::show_attack_modules_menu() {
     int choice = -1;
-    while (choice != 3) {
+    while (choice != 4) {
         display_main_menu_header();
         std::cout << C_BOLD << "           ATTACK MODULES               " << C_RESET << std::endl;
         std::cout << C_BLUE << "========================================" << C_RESET << std::endl;
         std::cout << C_GREEN << "[1]" << C_RESET << " Floods" << std::endl;
-        std::cout << C_GREEN << "[2]" << C_RESET << " Spoofings" << std::endl;
+        std::cout << C_GREEN << "[2]" << C_RESET << " Man In The Middle" << std::endl;
         std::cout << C_GREEN << "[3]" << C_RESET << " Denial of Service" << std::endl;
         std::cout << C_GREEN << "[4]" << C_RESET << " Back" << std::endl;
         std::cout << std::endl << C_BOLD << "mischiever/modules > " << C_RESET;
@@ -158,7 +159,7 @@ void Menu::show_attack_modules_menu() {
 
         switch (choice) {
             case 1: show_floods_menu(); break;
-            case 2: show_spoofings_menu(); break;
+            case 2: show_mitm_menu(); break;
             case 3: show_dos_menu(); break;
             case 4: return;
             default:
@@ -218,18 +219,18 @@ void Menu::show_floods_menu() {
     }
 }
 
-void Menu::show_spoofings_menu() {
+void Menu::show_mitm_menu() {
     int choice = -1;
     while (choice != 2) {
         display_main_menu_header();
-        std::cout << C_BOLD << "           SPOOFING ATTACKS             " << C_RESET << std::endl;
+        std::cout << C_BOLD << "              MITM ATTACKS              " << C_RESET << std::endl;
         std::cout << C_BLUE << "========================================" << C_RESET << std::endl;
         std::cout << C_YELLOW << "[!] Some attacks can be toggled ON/OFF to run in the background." << C_RESET << std::endl;
-        std::cout << C_GREEN << "[1]" << C_RESET << " ARP Spoof "
+        std::cout << C_GREEN << "[1]" << C_RESET << " ARP Spoofing "
                   << (session.arp_spoof_active ? C_GREEN "[ON]" C_RESET : C_RED "[OFF]" C_RESET)
                   << std::endl;
         std::cout << C_GREEN << "[2]" << C_RESET << " Back" << std::endl;
-        std::cout << std::endl << C_BOLD << "mischiever/modules/spoofings > " << C_RESET;
+        std::cout << std::endl << C_BOLD << "mischiever/modules/mitm > " << C_RESET;
 
         std::cin >> choice;
         if (std::cin.fail()) {
@@ -288,12 +289,13 @@ void Menu::show_spoofings_menu() {
 
 void Menu::show_dos_menu() {
     int choice = -1;
-    while (choice != 2) {
+    while (choice != 3) {
         display_main_menu_header();
         std::cout << C_BOLD << "           DoS ATTACKS                  " << C_RESET << std::endl;
         std::cout << C_BLUE << "========================================" << C_RESET << std::endl;
         std::cout << C_GREEN << "[1]" << C_RESET << " DHCP Lease Breaker" << std::endl;
-        std::cout << C_GREEN << "[2]" << C_RESET << " Back" << std::endl;
+        std::cout << C_GREEN << "[2]" << C_RESET << " ARP Blackhole" << std::endl;
+        std::cout << C_GREEN << "[3]" << C_RESET << " Back" << std::endl;
         std::cout << std::endl << C_BOLD << "mischiever/modules/dos > " << C_RESET;
 
         std::cin >> choice;
@@ -325,7 +327,33 @@ void Menu::show_dos_menu() {
                 std::cout << C_YELLOW << "    (This feature is coming in the next update)" << C_RESET << std::endl;
                 sleep(2);
             }
-        } else if (choice != 2) {
+        }
+        else if (choice == 2) { // ARP Blackhole
+            AttackModule* selected_attack = nullptr;
+            for (const auto& mod : attack_modules) {
+                if (mod->get_name() == "ARP Blackhole") {
+                    selected_attack = mod.get();
+                    break;
+                }
+            }
+
+            if (selected_attack) {
+                if (session.target_ip.empty() || session.gateway_ip.empty()) {
+                     std::cout << C_YELLOW << "[!] Target and Gateway IPs must be set for this attack." << C_RESET << std::endl;
+                     sleep(1);
+                     set_target_config();
+                }
+                
+                // Re-check after config
+                if (!session.target_ip.empty() && !session.gateway_ip.empty()) {
+                    run_selected_attack(selected_attack);
+                }
+            } else {
+                std::cout << C_RED << "Error: ARP Blackhole module not found!" << C_RESET << std::endl;
+                sleep(2);
+            }
+        }
+        else if (choice != 3) {
              std::cout << C_RED << "Invalid choice." << C_RESET << std::endl;
              sleep(1);
         }
@@ -408,14 +436,14 @@ void Menu::view_target_config() {
     std::cin.get();
 }
 
-// Target configuration menu with input validation and auto-resolve features
+// Target configuration menu with input validation and auto-find features
 void Menu::set_target_config() {
     display_main_menu_header();
     std::cout << C_BOLD << "         TARGET CONFIGURATION           " << C_RESET << std::endl;
     std::cout << C_BLUE << "========================================" << C_RESET << std::endl;
     std::cout << C_YELLOW << "[!] Press Enter to keep current value." << C_RESET << std::endl;
     std::cout << C_YELLOW << "[!] Type 'find' to scan LAN IP's or detect Gateway's IP." << C_RESET << std::endl;
-    std::cout << C_YELLOW << "[!] Type 'resolve' to auto-discover MAC addresses." << C_RESET << std::endl;
+    std::cout << C_YELLOW << "[!] Type 'find' to auto-discover MAC addresses." << C_RESET << std::endl;
     std::cout << C_YELLOW << "[!] Type 'q' to quit.\n" << C_RESET << std::endl;
     
     // Clear buffer before starting
@@ -488,12 +516,12 @@ void Menu::set_target_config() {
         if (check_exit(temp)) return;
 
         if (!temp.empty()) {
-            if (temp == "resolve") {
+            if (temp == "find") {
                 if (session.target_ip.empty()) {
-                    std::cout << C_RED << "Cannot resolve MAC without Target IP!" << C_RESET << std::endl;
+                    std::cout << C_RED << "Cannot find MAC without Target IP!" << C_RESET << std::endl;
                     valid_input = false; 
                 } else {
-                    std::cout << C_YELLOW << "[*] Resolving Target MAC... " << C_RESET;
+                    std::cout << C_YELLOW << "[*] Finding Target MAC... " << C_RESET;
                     std::string mac = session.helper->get_mac_from_ip(session.target_ip);
                     if (!mac.empty()) {
                         session.target_mac = mac;
@@ -555,12 +583,12 @@ void Menu::set_target_config() {
         if (check_exit(temp)) return;
 
         if (!temp.empty()) {
-            if (temp == "resolve") {
+            if (temp == "find") {
                 if (session.gateway_ip.empty()) {
-                    std::cout << C_RED << "Cannot resolve MAC without Gateway IP!" << C_RESET << std::endl;
+                    std::cout << C_RED << "Cannot find MAC without Gateway IP!" << C_RESET << std::endl;
                     valid_input = false;
                 } else {
-                    std::cout << C_YELLOW << "[*] Resolving Gateway MAC... " << C_RESET;
+                    std::cout << C_YELLOW << "[*] Finding Gateway MAC... " << C_RESET;
                     std::string mac = session.helper->get_mac_from_ip(session.gateway_ip);
                     if (!mac.empty()) {
                         session.gateway_mac = mac;
