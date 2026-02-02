@@ -11,6 +11,7 @@ SRCS = main.cpp \
        code_files/menu.cpp \
        code_files/processes.cpp \
        code_files/database.cpp \
+       code_files/sniffer.cpp \
        code_files/protocols/syn.cpp \
        code_files/protocols/arp.cpp \
        code_files/protocols/icmp.cpp

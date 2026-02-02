@@ -68,12 +68,18 @@ Mischiever replaces manual lookups with context-aware automation:
 
 ```bash
 # 1. Install Dependencies
-# Debian/Kali/Ubuntu:
+
+# For Debian / Kali / Ubuntu:
 sudo apt-get update
 sudo apt-get install libpcap-dev libsqlite3-dev build-essential
+
+# For Arch Linux (Manjaro / EndeavourOS):
+sudo pacman -S libpcap sqlite base-devel
+# (Optional) If you use Wayland, install 'imv' for image support:
+sudo pacman -S imv
 
 # 2. Compile
 make
 
-# 3. Run
+# 3. Run (Must be run as root for Raw Sockets)
 sudo ./mischiever

@@ -9,6 +9,9 @@
 #include "attack_module.h"
 #include "helperfuncs.h"
 
+// Define sniffer class here to fix circular dependency (it just needs to know it exists, because we pass a pointer)
+class Sniffer;
+
 class Menu {
 public:
     Menu();
@@ -22,6 +25,8 @@ private:
     Session session;
     // Collection of available attack modules
     std::vector<std::unique_ptr<AttackModule>> attack_modules;
+    // Sniffer tool
+    std::unique_ptr<Sniffer> sniffer_tool;
 
     // Main menu and header
     void print_logo();

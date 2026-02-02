@@ -6,6 +6,7 @@
 #include <iomanip> // For std::setw
 
 #include "headers/menu.h"
+#include "headers/sniffer.h"
 #include "headers/syn.h"
 #include "headers/arp.h"
 #include "headers/icmp.h"
@@ -14,6 +15,7 @@
 Menu::Menu() {
     // Seed random number generator
     srand(time(0));
+    sniffer_tool = std::unique_ptr<Sniffer>(new Sniffer()); // Initialize sniffer tool
 }
 
 Menu::~Menu() {}
@@ -40,7 +42,7 @@ void Menu::run() {
     }
     
     int choice = -1;
-    while (choice != 4) {
+    while (choice != 5) {
         display_main_menu();
         
         std::cin >> choice;
@@ -53,11 +55,25 @@ void Menu::run() {
 
         switch (choice) {
             case 1: show_attack_modules_menu(); break;
-            case 2: show_attack_history(); break;
+            case 2: // sniffer
+            if (session.interface.empty()) {
+                std::cout << C_RED << "Interface not set! Please configure it first." << C_RESET << std::endl;
+                sleep(2);
+            } else {
+                sniffer_tool->start(&session);
+                // Wait for Enter to stop
+                std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+                std::cin.get();
+                sniffer_tool->stop();
+                sleep(2);
+            }
+            break;
             case 3: show_target_config_menu(); break;
+            case 4: show_attack_history(); break;
+            // Easter Eggs
             case 69: session.helper->displayImage("misc/cat.jpg"); break; // Easter egg
             case 777: session.helper->displayImage("misc/cat2.png"); break; // Easter egg
-            case 4: break; // Exit
+            case 5: break; // Exit
             default:
                 std::cout << C_RED << "Invalid choice. Please try again." << C_RESET << std::endl;
                 sleep(1);
@@ -114,9 +130,10 @@ void Menu::display_main_menu() {
     std::cout << C_BOLD << "            MAIN MENU                   " << C_RESET << std::endl;
     std::cout << C_BLUE << "========================================" << C_RESET << std::endl;
     std::cout << C_GREEN << "[1]" << C_RESET << " Attack Modules" << std::endl;
-    std::cout << C_GREEN << "[2]" << C_RESET << " Attack History" << std::endl;
+    std::cout << C_GREEN << "[2]" << C_RESET << " Traffic Sniffer" << std::endl;
     std::cout << C_GREEN << "[3]" << C_RESET << " Target Configuration" << std::endl;
-    std::cout << C_GREEN << "[4]" << C_RESET << " Exit" << std::endl;
+    std::cout << C_GREEN << "[4]" << C_RESET << " Attack History" << std::endl;
+    std::cout << C_GREEN << "[5]" << C_RESET << " Exit" << std::endl;
     std::cout << std::endl << C_BOLD << "mischiever > " << C_RESET;
 }
 
