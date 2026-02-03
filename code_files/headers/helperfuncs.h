@@ -29,12 +29,13 @@ class HelperFunctions {
     void clearScreen();
     void displayImage(const char* filename);
     
-    // CHANGED: Returns std::string to avoid dangling pointer issues
+    // Returns std::string to avoid dangling pointer issues
     std::string get_iface(); 
     
+    // get_local_ip returns a string instead of char* to avoid memory management issues (caller doesn't have to free it)
     std::string get_local_ip(const char* iface);
     
-    // OPTIMIZATION: Pass string by const reference (&) to avoid copying
+    // Pass string by const reference (&) to avoid copying
     std::string get_mac_from_ip(const std::string& ip_addr);
 
     // Input validation
@@ -44,6 +45,8 @@ class HelperFunctions {
     // Scanner functions
     void scan_local_network(const char* interface);
     std::string get_default_gateway_ip();
+    std::string get_dns_server_ip();
+    std::string get_dhcp_server_ip();
 };
 
 #endif // HELPERFUNCS_H

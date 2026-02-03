@@ -17,7 +17,6 @@ void HelperFunctions::displayImage(const char* filename) {
     system(command.c_str());
 }
 
-// FIXED: Memory safety issue
 std::string HelperFunctions::get_iface() {
     struct ifaddrs *ifaddr, *ifa;
     std::string iface_name = ""; // Default empty
@@ -165,4 +164,55 @@ std::string HelperFunctions::get_default_gateway_ip() {
         }
     }
     return "";
+}
+
+std::string HelperFunctions::get_dns_server_ip() {
+    std::ifstream file("/etc/resolv.conf");
+    std::string line;
+    if (!file.is_open()) return "";
+
+    while (std::getline(file, line)) {
+        // Look for line starting with "nameserver"
+        if (line.find("nameserver") == 0) {
+            std::stringstream ss(line);
+            std::string label, ip;
+            ss >> label >> ip;
+            // Skip localhost DNS entries
+            if (is_valid_ip(ip) && ip != "127.0.0.53") return ip;
+        }
+    }
+    return "";
+}
+
+std::string HelperFunctions::get_dhcp_server_ip() {
+    // Strategy 1: Try to read standard lease files
+    const char* lease_files[] = {
+        "/var/lib/dhcp/dhclient.leases",
+        "/var/lib/NetworkManager/dhclient-*.lease"
+    };
+
+    for (const char* filepath : lease_files) {
+        std::ifstream file(filepath);
+        if (file.is_open()) {
+            std::string line;
+            while (std::getline(file, line)) {
+                // Look for "option dhcp-server-identifier 192.168.1.1;"
+                if (line.find("dhcp-server-identifier") != std::string::npos) {
+                    std::stringstream ss(line);
+                    std::string temp, ip;
+                    // Format: option dhcp-server-identifier IP;
+                    while (ss >> temp) {
+                        if (is_valid_ip(temp)) return temp; 
+                        // Handle the trailing semicolon case "192.168.1.1;"
+                        if (temp.back() == ';' && is_valid_ip(temp.substr(0, temp.size()-1))) {
+                             return temp.substr(0, temp.size()-1);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Strategy 2: If we can't find the file, assume Gateway = DHCP (Common in LANs)
+    return get_default_gateway_ip();
 }
