@@ -22,7 +22,7 @@ void SYN::run(Session* session) {
     // The syn_flood_loop is launched in a new thread
     // std::ref is used to pass the session->target_ip by reference
     attack_thread = std::thread(&SYN::syn_flood_loop, this, session->target_ip);
-    std::cout << C_BOLD << get_name() << " started..." << C_RESET << std::endl;
+    //std::cout << C_BOLD << get_name() << " started..." << C_RESET << std::endl;
 }
 
 // Signals the attack thread to stop and waits for it to join.

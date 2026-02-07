@@ -10,6 +10,7 @@
 #include "headers/syn.h"
 #include "headers/arp.h"
 #include "headers/icmp.h"
+#include "headers/dhcp.h"
 
 // --- Constructor & Destructor ---
 Menu::Menu() {
@@ -32,6 +33,7 @@ void Menu::run() {
     attack_modules.push_back(std::unique_ptr<ICMP>(new ICMP()));
     attack_modules.push_back(std::unique_ptr<ARP>(new ARP(true)));      // ARP Spoof (Spy Mode)
     attack_modules.push_back(std::unique_ptr<ARP>(new ARP(false)));     // ARP Blackhole (Kill Mode)
+    attack_modules.push_back(std::unique_ptr<DHCP>(new DHCP(DHCP::STARVATION))); // DHCP with Starvation mode
 
     // Set default interface automatically if possible
     std::string default_iface = session.helper->get_iface();
@@ -72,7 +74,7 @@ void Menu::run() {
             case 3: show_target_config_menu(); break;
             case 4: show_attack_history(); break;
             // Easter Eggs
-            case 69: session.helper->displayImage("misc/cat.jpg"); break; // Easter egg
+            case 42: session.helper->displayImage("misc/cat.jpg"); break; // Easter egg
             case 777: session.helper->displayImage("misc/cat2.png"); break; // Easter egg
             case 5: break; // Exit
             default:
@@ -214,6 +216,7 @@ void Menu::show_floods_menu() {
                 std::cout << C_YELLOW << "[!] Target not set. Redirecting to configuration..." << C_RESET << std::endl;
                 set_target_config();
             }
+            std::cout << C_GREEN << selected_attack->get_name() << " attack started." << C_RESET << std::endl;
             run_selected_attack(selected_attack);
         }
     }
@@ -289,13 +292,14 @@ void Menu::show_mitm_menu() {
 
 void Menu::show_dos_menu() {
     int choice = -1;
-    while (choice != 3) {
+    while (choice != 4) {
         display_main_menu_header();
         std::cout << C_BOLD << "           DoS ATTACKS                  " << C_RESET << std::endl;
         std::cout << C_BLUE << "========================================" << C_RESET << std::endl;
         std::cout << C_GREEN << "[1]" << C_RESET << " DHCP Lease Breaker" << std::endl;
-        std::cout << C_GREEN << "[2]" << C_RESET << " ARP Blackhole" << std::endl;
-        std::cout << C_GREEN << "[3]" << C_RESET << " Back" << std::endl;
+        std::cout << C_GREEN << "[2]" << C_RESET << " DHCP Starvation" << std::endl;
+        std::cout << C_GREEN << "[3]" << C_RESET << " ARP Blackhole" << std::endl;
+        std::cout << C_GREEN << "[4]" << C_RESET << " Back" << std::endl;
         std::cout << std::endl << C_BOLD << "mischiever/modules/dos > " << C_RESET;
 
         std::cin >> choice;
@@ -320,6 +324,7 @@ void Menu::show_dos_menu() {
                     std::cout << C_YELLOW << "[!] Target not set. Redirecting to configuration..." << C_RESET << std::endl;
                     set_target_config();
                 }
+                std::cout << C_GREEN << "DHCP Release attack started." << C_RESET << std::endl;
                 run_selected_attack(selected_attack);
             } else {
                 // Placeholder behavior until we code the class
@@ -328,7 +333,28 @@ void Menu::show_dos_menu() {
                 sleep(2);
             }
         }
-        else if (choice == 2) { // ARP Blackhole
+        else if (choice == 2) {
+            AttackModule* selected_attack = nullptr;
+            for (const auto& mod : attack_modules) {
+                if (mod->get_name() == "DHCP Starvation") {
+                    selected_attack = mod.get();
+                    break;
+                }
+            }
+
+            if (selected_attack) {
+                if(session.interface.empty()) {
+                    std::cout << C_YELLOW << "[!] Interface not set. Redirecting to configuration..." << C_RESET << std::endl;
+                    set_target_config();
+                }
+                std::cout << C_GREEN << "DHCP Starvation attack started." << C_RESET << std::endl;
+                run_selected_attack(selected_attack);
+            } else {
+                std::cout << C_RED << "Error: DHCP Starvation module not found!" << C_RESET << std::endl;
+                sleep(2);
+            }
+        }
+        else if (choice == 3) { // ARP Blackhole
             AttackModule* selected_attack = nullptr;
             for (const auto& mod : attack_modules) {
                 if (mod->get_name() == "ARP Blackhole") {
@@ -346,14 +372,14 @@ void Menu::show_dos_menu() {
                 
                 // Re-check after config
                 if (!session.target_ip.empty() && !session.gateway_ip.empty()) {
-                    run_selected_attack(selected_attack);
-                }
+                    std::cout << C_GREEN << "ARP Blackhole attack started." << C_RESET << std::endl;
+                    run_selected_attack(selected_attack);                }
             } else {
                 std::cout << C_RED << "Error: ARP Blackhole module not found!" << C_RESET << std::endl;
                 sleep(2);
             }
         }
-        else if (choice != 3) {
+        else if (choice != 4) {
              std::cout << C_RED << "Invalid choice." << C_RESET << std::endl;
              sleep(1);
         }

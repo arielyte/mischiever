@@ -35,7 +35,7 @@ void ICMP::run(Session* session) {
     }
     stop_flag = false;
     attack_thread = std::thread(&ICMP::flood_loop, this, session->target_ip);
-    std::cout << C_BOLD << get_name() << " started..." << C_RESET << std::endl;
+    //std::cout << C_BOLD << get_name() << " started..." << C_RESET << std::endl;
 }
 
 void ICMP::flood_loop(std::string target_ip_str) {

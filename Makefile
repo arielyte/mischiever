@@ -13,7 +13,8 @@ SRCS = main.cpp \
        code_files/sniffer.cpp \
        code_files/protocols/syn.cpp \
        code_files/protocols/arp.cpp \
-       code_files/protocols/icmp.cpp
+       code_files/protocols/icmp.cpp \
+       code_files/protocols/dhcp.cpp
 
 # Object Files
 OBJS = $(SRCS:.cpp=.o)
