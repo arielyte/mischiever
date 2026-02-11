@@ -12,14 +12,14 @@
 
 #include "../headers/arp.h"
 
-ARP::ARP(bool forwarding_enabled) : stop_flag(false), forwarding_enabled(forwarding_enabled) {}
+ARP::ARP(Mode mode) : stop_flag(false), current_mode(mode) {}
 
 ARP::~ARP() {
     stop();
 }
 
 std::string ARP::get_name() {
-    if (this->forwarding_enabled) {
+    if (this->current_mode == SPOOFING) {
         return "ARP Spoof";
     } else {
         return "ARP Blackhole";
@@ -48,7 +48,7 @@ void ARP::stop() {
     attack_threads.clear();
     
     // Disable IP Forwarding and clean up firewall rules
-    if (this->forwarding_enabled) {
+    if (this->current_mode == SPOOFING) {
         set_ip_forwarding("0");
         if (!this->interface.empty()) {
             std::string rule1 = "iptables -D FORWARD -i " + this->interface + " -j ACCEPT";
@@ -67,7 +67,7 @@ void ARP::run(Session* session) {
     }
 
     // --- DYNAMIC BEHAVIOR BASED ON MODE ---
-    if (this->forwarding_enabled) {
+    if (this->current_mode == SPOOFING) {
         // "ARP Spoof" (Spy) Mode: Enable forwarding to intercept traffic
         set_ip_forwarding("1");
 

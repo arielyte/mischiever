@@ -19,7 +19,11 @@
 // The SYN class now inherits from AttackModule
 class SYN : public AttackModule {
 public:
-    SYN() : target_port(80), packet_count(-1), stop_flag(false) {} // Default values
+    enum Mode {
+        FLOOD
+    };
+
+    SYN(Mode mode);
     ~SYN();
 
     // Implement the virtual functions from the base class
@@ -27,13 +31,11 @@ public:
     void stop() override;
     std::string get_name() override;
 
-    // Specific setter for this module's parameters
-    void set_options(int port, int count);
-
 private:
     // Module-specific parameters
     int target_port;
     int packet_count;
+    Mode current_mode;
     
     // Threading and control
     std::thread attack_thread;

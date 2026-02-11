@@ -1,14 +1,10 @@
 #include "../headers/syn.h"
 
+SYN::SYN(Mode mode) : target_port(80), packet_count(-1), current_mode(mode), stop_flag(false) {}
+
 // Return the name of the attack for menu display
 std::string SYN::get_name() {
     return "SYN Flood";
-}
-
-// Set module-specific options
-void SYN::set_options(int port, int count) {
-    this->target_port = port;
-    this->packet_count = count;
 }
 
 // The main entry point to run the attack.

@@ -29,10 +29,10 @@ void Menu::run() {
     // Instead of creating tools on demand, we load them all into an "Inventory" (vector) at startup.
     // This allows us to add 50 new attacks without changing the main loop logic.
     // We use unique_ptr to handle memory automatically (no more manual 'delete').
-    attack_modules.push_back(std::unique_ptr<SYN>(new SYN()));
-    attack_modules.push_back(std::unique_ptr<ICMP>(new ICMP()));
-    attack_modules.push_back(std::unique_ptr<ARP>(new ARP(true)));      // ARP Spoof (Spy Mode)
-    attack_modules.push_back(std::unique_ptr<ARP>(new ARP(false)));     // ARP Blackhole (Kill Mode)
+    attack_modules.push_back(std::unique_ptr<SYN>(new SYN(SYN::FLOOD)));
+    attack_modules.push_back(std::unique_ptr<ICMP>(new ICMP(ICMP::FLOOD)));
+    attack_modules.push_back(std::unique_ptr<ARP>(new ARP(ARP::SPOOFING)));
+    attack_modules.push_back(std::unique_ptr<ARP>(new ARP(ARP::BLACKHOLE)));
     attack_modules.push_back(std::unique_ptr<DHCP>(new DHCP(DHCP::STARVATION))); // DHCP with Starvation mode
     attack_modules.push_back(std::unique_ptr<DHCP>(new DHCP(DHCP::RELEASE))); // DHCP with Targeted Release mode
 

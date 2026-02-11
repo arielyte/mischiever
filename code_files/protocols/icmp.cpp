@@ -8,16 +8,14 @@
 
 #include "../headers/icmp.h"
 
+ICMP::ICMP(Mode mode) : packet_count(-1), current_mode(mode), stop_flag(false) {}
+
 ICMP::~ICMP() {
     stop();
 }
 
 std::string ICMP::get_name() {
     return "ICMP Flood";
-}
-
-void ICMP::set_options(int count) {
-    this->packet_count = count;
 }
 
 void ICMP::stop() {

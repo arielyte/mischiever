@@ -10,7 +10,11 @@
 
 class ICMP : public AttackModule {
 public:
-    ICMP() : packet_count(-1), stop_flag(false) {}
+    enum Mode {
+        FLOOD
+    };
+
+    ICMP(Mode mode);
     ~ICMP();
 
     // Implementation of the AttackModule interface
@@ -18,17 +22,14 @@ public:
     void stop() override;
     std::string get_name() override;
 
-    // Specific setter for this module's parameters
-    void set_options(int count);
-
 private:
     // Module-specific parameters
     int packet_count;
+    Mode current_mode;
 
     // Threading and control
     std::thread attack_thread;
     std::atomic<bool> stop_flag;
-
     // Private helper for the attack logic
     void flood_loop(std::string target_ip);
 
