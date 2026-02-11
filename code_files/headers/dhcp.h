@@ -44,6 +44,10 @@ public:
     void stop() override;
     std::string get_name() override;
 
+    // Background control for Starvation
+    void start_starvation_background(Session* session);
+    void stop_starvation();
+
 private:
     Mode current_mode;
     std::vector<std::thread> attack_threads;
@@ -57,6 +61,12 @@ private:
     
     // Packet Builder
     void send_dhcp_discover(int sock, int ifindex, const uint8_t* mac);
+
+    // Logic for the Targeted Kick
+    void release_loop(Session* session);
+    
+    // Packet Builder for RELEASE
+    void send_dhcp_release(int sock, int ifindex, Session* session);
 };
 
 #endif

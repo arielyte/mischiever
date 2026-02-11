@@ -16,6 +16,7 @@
 #include <ifaddrs.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <array>
 
 #define C_RESET       "\033[0m"
 #define C_GREEN       "\033[1;32m"

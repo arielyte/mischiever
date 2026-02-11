@@ -185,34 +185,37 @@ std::string HelperFunctions::get_dns_server_ip() {
 }
 
 std::string HelperFunctions::get_dhcp_server_ip() {
-    // Strategy 1: Try to read standard lease files
-    const char* lease_files[] = {
-        "/var/lib/dhcp/dhclient.leases",
-        "/var/lib/NetworkManager/dhclient-*.lease"
-    };
+    // FIX: Dynamically get the interface instead of hardcoding eth0
+    std::string iface = get_iface();
+    if (iface.empty()) {
+        // Fallback if no active interface found
+        return get_default_gateway_ip(); 
+    }
 
-    for (const char* filepath : lease_files) {
-        std::ifstream file(filepath);
-        if (file.is_open()) {
-            std::string line;
-            while (std::getline(file, line)) {
-                // Look for "option dhcp-server-identifier 192.168.1.1;"
-                if (line.find("dhcp-server-identifier") != std::string::npos) {
-                    std::stringstream ss(line);
-                    std::string temp, ip;
-                    // Format: option dhcp-server-identifier IP;
-                    while (ss >> temp) {
-                        if (is_valid_ip(temp)) return temp; 
-                        // Handle the trailing semicolon case "192.168.1.1;"
-                        if (temp.back() == ';' && is_valid_ip(temp.substr(0, temp.size()-1))) {
-                             return temp.substr(0, temp.size()-1);
-                        }
-                    }
-                }
-            }
+    // Strategy: Ask NetworkManager CLI directly
+    std::string cmd = "nmcli -f IP4.DHCP-SERVER dev show " + iface + " 2>/dev/null";
+    
+    std::array<char, 128> buffer;
+    std::string result;
+    
+    // Run the command and capture output
+    std::shared_ptr<FILE> pipe(popen(cmd.c_str(), "r"), pclose);
+    if (!pipe) return get_default_gateway_ip(); // Fallback if popen fails
+
+    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
+        result += buffer.data();
+    }
+
+    // Output format is usually: "IP4.DHCP-SERVER:            192.168.174.254"
+    std::stringstream ss(result);
+    std::string segment;
+    while (ss >> segment) {
+        // Return the first valid IP we find in the output
+        if (is_valid_ip(segment)) {
+            return segment; 
         }
     }
-    
-    // Strategy 2: If we can't find the file, assume Gateway = DHCP (Common in LANs)
+
+    // Final Fallback: If nmcli failed or returned nothing, guess the Gateway
     return get_default_gateway_ip();
 }

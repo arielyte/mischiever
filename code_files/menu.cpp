@@ -34,6 +34,7 @@ void Menu::run() {
     attack_modules.push_back(std::unique_ptr<ARP>(new ARP(true)));      // ARP Spoof (Spy Mode)
     attack_modules.push_back(std::unique_ptr<ARP>(new ARP(false)));     // ARP Blackhole (Kill Mode)
     attack_modules.push_back(std::unique_ptr<DHCP>(new DHCP(DHCP::STARVATION))); // DHCP with Starvation mode
+    attack_modules.push_back(std::unique_ptr<DHCP>(new DHCP(DHCP::RELEASE))); // DHCP with Targeted Release mode
 
     // Set default interface automatically if possible
     std::string default_iface = session.helper->get_iface();
@@ -297,7 +298,9 @@ void Menu::show_dos_menu() {
         std::cout << C_BOLD << "           DoS ATTACKS                  " << C_RESET << std::endl;
         std::cout << C_BLUE << "========================================" << C_RESET << std::endl;
         std::cout << C_GREEN << "[1]" << C_RESET << " DHCP Lease Breaker" << std::endl;
-        std::cout << C_GREEN << "[2]" << C_RESET << " DHCP Starvation" << std::endl;
+        std::cout << C_GREEN << "[2]" << C_RESET << " DHCP Starvation "
+                  << (session.dhcp_starvation_active ? C_GREEN "[ON]" C_RESET : C_RED "[OFF]" C_RESET)
+                  << std::endl;
         std::cout << C_GREEN << "[3]" << C_RESET << " ARP Blackhole" << std::endl;
         std::cout << C_GREEN << "[4]" << C_RESET << " Back" << std::endl;
         std::cout << std::endl << C_BOLD << "mischiever/modules/dos > " << C_RESET;
@@ -310,45 +313,71 @@ void Menu::show_dos_menu() {
             std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
         }
 
-        if (choice == 1) {
+        if (choice == 1) { // DHCP Lease Breaker
             AttackModule* selected_attack = nullptr;
-            
-            // Try to find the module (Future-proofing for when we add it)
             for (const auto& mod : attack_modules) {
                 if (mod->get_name() == "DHCP Release") selected_attack = mod.get();
             }
 
             if (selected_attack) {
-                // If found, ensure target is set and run it
-                if(session.target_ip.empty()) {
-                    std::cout << C_YELLOW << "[!] Target not set. Redirecting to configuration..." << C_RESET << std::endl;
+                // This attack needs Target IP, Target MAC, and the DHCP Server IP
+                if (session.target_ip.empty() || session.target_mac.empty() || session.dhcp_server_ip.empty()) {
+                    std::cout << C_YELLOW << "[!] Target IP/MAC & DHCP Server IP must be set. Redirecting..." << C_RESET << std::endl;
+                    sleep(1);
                     set_target_config();
                 }
-                std::cout << C_GREEN << "DHCP Release attack started." << C_RESET << std::endl;
-                run_selected_attack(selected_attack);
+                
+                // Re-check after config
+                if (!session.target_ip.empty() && !session.target_mac.empty() && !session.dhcp_server_ip.empty()) {
+                    std::cout << C_GREEN << "DHCP Release attack started." << C_RESET << std::endl;
+                    run_selected_attack(selected_attack);
+                } else {
+                    std::cout << C_RED << "Configuration incomplete. Attack not started." << C_RESET << std::endl;
+                    sleep(1);
+                }
             } else {
-                // Placeholder behavior until we code the class
-                std::cout << C_YELLOW << "\n[!] Module 'DHCP Release' is not yet loaded/implemented." << C_RESET << std::endl;
-                std::cout << C_YELLOW << "    (This feature is coming in the next update)" << C_RESET << std::endl;
+                std::cout << C_RED << "Error: DHCP Release module not found!" << C_RESET << std::endl;
                 sleep(2);
             }
         }
-        else if (choice == 2) {
-            AttackModule* selected_attack = nullptr;
+        else if (choice == 2) { // DHCP Starvation (Toggle)
+            DHCP* dhcp_starve_attack = nullptr;
             for (const auto& mod : attack_modules) {
                 if (mod->get_name() == "DHCP Starvation") {
-                    selected_attack = mod.get();
+                    dhcp_starve_attack = static_cast<DHCP*>(mod.get());
                     break;
                 }
             }
 
-            if (selected_attack) {
-                if(session.interface.empty()) {
-                    std::cout << C_YELLOW << "[!] Interface not set. Redirecting to configuration..." << C_RESET << std::endl;
-                    set_target_config();
+            if (dhcp_starve_attack) {
+                if (session.dhcp_starvation_active) {
+                    // It's ON -> Turn it OFF
+                    dhcp_starve_attack->stop_starvation();
+                    session.dhcp_starvation_active = false;
+                    std::cout << C_GREEN << "DHCP Starvation stopped." << C_RESET << std::endl;
+                    sleep(1);
+                } else {
+                    // It's OFF -> Turn it ON
+                    if (session.interface.empty()) {
+                        std::cout << C_YELLOW << "[!] Interface not set. Redirecting..." << C_RESET << std::endl;
+                        sleep(1);
+                        set_target_config();
+                    }
+                    
+                    if (!session.interface.empty()) {
+                        std::string my_ip = session.helper->get_local_ip(session.interface.c_str());
+                        std::string source_log = my_ip.empty() ? "Unknown (You)" : my_ip + " (You)";
+                        session.db->log_attack(dhcp_starve_attack->get_name(), source_log, "Network Pool");
+
+                        dhcp_starve_attack->start_starvation_background(&session);
+                        session.dhcp_starvation_active = true;
+                        std::cout << C_GREEN << "DHCP Starvation started in the background." << C_RESET << std::endl;
+                        sleep(2);
+                    } else {
+                        std::cout << C_RED << "Interface not set. Attack not started." << C_RESET << std::endl;
+                        sleep(1);
+                    }
                 }
-                std::cout << C_GREEN << "DHCP Starvation attack started." << C_RESET << std::endl;
-                run_selected_attack(selected_attack);
             } else {
                 std::cout << C_RED << "Error: DHCP Starvation module not found!" << C_RESET << std::endl;
                 sleep(2);
@@ -373,7 +402,8 @@ void Menu::show_dos_menu() {
                 // Re-check after config
                 if (!session.target_ip.empty() && !session.gateway_ip.empty()) {
                     std::cout << C_GREEN << "ARP Blackhole attack started." << C_RESET << std::endl;
-                    run_selected_attack(selected_attack);                }
+                    run_selected_attack(selected_attack);
+                }
             } else {
                 std::cout << C_RED << "Error: ARP Blackhole module not found!" << C_RESET << std::endl;
                 sleep(2);

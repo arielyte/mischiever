@@ -33,6 +33,7 @@ struct Session {
 
     // Attack-specific states
     bool arp_spoof_active = false;
+    bool dhcp_starvation_active = false;
 
     // Shared Services
     std::unique_ptr<Database> db;
