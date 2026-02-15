@@ -219,3 +219,33 @@ std::string HelperFunctions::get_dhcp_server_ip() {
     // Final Fallback: If nmcli failed or returned nothing, guess the Gateway
     return get_default_gateway_ip();
 }
+
+void HelperFunctions::toggle_ip_forwarding(bool enable) {
+    if (enable) {
+        system("echo 1 > /proc/sys/net/ipv4/ip_forward");
+    } else {
+        system("echo 0 > /proc/sys/net/ipv4/ip_forward");
+    }
+}
+
+void HelperFunctions::toggle_send_redirects(bool enable) {
+    // 0 = Disable redirects (Stealth Mode / "Don't tell victim to bypass me")
+    // 1 = Enable redirects (Default Linux behavior)
+    if (enable) {
+        system("sysctl -w net.ipv4.conf.all.send_redirects=1 > /dev/null");
+    } else {
+        system("sysctl -w net.ipv4.conf.all.send_redirects=0 > /dev/null");
+    }
+}
+
+void HelperFunctions::toggle_dns_drop_rule(bool enable) {
+    // We use -I (Insert at top) to enable, and -D (Delete) to disable
+    if (enable) {
+        // Drop UDP packets on port 53 passing THROUGH the machine (FORWARD chain)
+        // We suppress output with > /dev/null 2>&1 just to keep the console clean
+        system("iptables -I FORWARD -p udp --dport 53 -j DROP > /dev/null 2>&1");
+    } else {
+        // Remove the rule
+        system("iptables -D FORWARD -p udp --dport 53 -j DROP > /dev/null 2>&1");
+    }
+}

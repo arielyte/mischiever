@@ -40,7 +40,7 @@ class HelperFunctions {
     std::string get_mac_from_ip(const std::string& ip_addr);
 
     // Input validation
-    bool is_valid_ip(const std::string& ip);
+    static bool is_valid_ip(const std::string& ip);
     bool is_valid_mac(const std::string& mac);
 
     // Scanner functions
@@ -48,6 +48,11 @@ class HelperFunctions {
     std::string get_default_gateway_ip();
     std::string get_dns_server_ip();
     std::string get_dhcp_server_ip();
+
+    // System Configuration Helpers
+    static void toggle_ip_forwarding(bool enable);
+    static void toggle_send_redirects(bool enable); // Controls the "Redirect Host" spam
+    static void toggle_dns_drop_rule(bool enable);  // Controls the IPTables DROP rule
 };
 
 #endif // HELPERFUNCS_H

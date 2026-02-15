@@ -297,16 +297,29 @@ void Menu::show_dos_menu() {
     int choice = -1;
     while (choice != 5) {
         display_main_menu_header();
-        std::cout << C_BOLD << "           DoS ATTACKS                  " << C_RESET << std::endl;
+
+        // 1. Prepare Status Strings (Logic first)
+        std::string starvation_status = session.dhcp_starvation_active 
+                                        ? C_GREEN "[ON]" 
+                                        : C_RED "[OFF]";
+
+        std::string dns_status = session.arp_spoof_active 
+                                 ? C_GREEN "[READY]" 
+                                 : C_RED "[ARP SPOOFING REQUIRED]";
+
+        // 2. Print Menu (View second)
+        // \t tabs are cleaner than typing 10 spaces
+        std::cout << C_BOLD << "\t\tDoS ATTACKS" << C_RESET << std::endl; 
         std::cout << C_BLUE << "========================================" << C_RESET << std::endl;
+        
         std::cout << C_GREEN << "[1]" << C_RESET << " DHCP Lease Breaker" << std::endl;
-        std::cout << C_GREEN << "[2]" << C_RESET << " DHCP Starvation "
-                  << (session.dhcp_starvation_active ? C_GREEN "[ON]" C_RESET : C_RED "[OFF]" C_RESET)
-                  << std::endl;
+        std::cout << C_GREEN << "[2]" << C_RESET << " DHCP Starvation " << starvation_status << C_RESET << std::endl;
         std::cout << C_GREEN << "[3]" << C_RESET << " ARP Blackhole" << std::endl;
-        std::cout << C_GREEN << "[4]" << C_RESET << " DNS Spoofing" << std::endl;
+        std::cout << C_GREEN << "[4]" << C_RESET << " DNS Spoofing    " << dns_status << C_RESET << std::endl;
         std::cout << C_GREEN << "[5]" << C_RESET << " Back" << std::endl;
-        std::cout << std::endl << C_BOLD << "mischiever/modules/dos > " << C_RESET;
+
+        // 3. Prompt & Input
+        std::cout << "\n" << C_BOLD << "mischiever/modules/dos > " << C_RESET;
 
         std::cin >> choice;
         // Input validation to prevent infinite loops on bad input
@@ -740,13 +753,25 @@ void Menu::delete_target_config() {
     sleep(1);
 }
 
-void Menu::set_dns_config(){
-    std::cout << "\n==== DNS SPOOF CONFIG ====" << std::endl;
-    std::cout << "Target Domain (e.g. google.com): ";
+void Menu::set_dns_config() {
+    std::cout << "\n" << C_BLUE << "======== DNS SPOOF CONFIG ========" << C_RESET << std::endl;
+    
+    std::cout << "Target Domain (e.g. " << C_YELLOW << "neverssl.com" << C_RESET << "): ";
     std::cin >> session.dns_target_domain;
-    // TODO: Let the user enter a domain that will translate to an ip that want to be redirected to
-    std::cout << "Spoof IP (Redirect to): ";
-    std::cin >> session.dns_spoofed_ip;
+
+    // INPUT VALIDATION LOOP
+    while (true) {
+        std::cout << "Spoof IP (Redirect to): ";
+        std::string input_ip;
+        std::cin >> input_ip;
+
+        if (HelperFunctions::is_valid_ip(input_ip)) {
+            session.dns_spoofed_ip = input_ip;
+            break; // Valid IP, exit loop
+        } else {
+            std::cout << C_RED << "[!] Invalid IP address. Format: x.x.x.x" << C_RESET << std::endl;
+        }
+    }
 }
 
 // Dynamic attack runner that takes any AttackModule and runs it using shared Session state
