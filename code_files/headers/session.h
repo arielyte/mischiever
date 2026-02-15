@@ -31,6 +31,10 @@ struct Session {
     std::string dhcp_server_ip; // Defaults to gateway_ip
     std::string dns_server_ip;  // Defaults to gateway_ip
 
+    // DNS Variables
+    std::string dns_target_domain; // "facebook.com"
+    std::string dns_spoofed_ip;    // "192.168.1.105"
+
     // Attack-specific states
     bool arp_spoof_active = false;
     bool dhcp_starvation_active = false;

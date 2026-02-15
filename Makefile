@@ -14,7 +14,8 @@ SRCS = main.cpp \
        code_files/protocols/syn.cpp \
        code_files/protocols/arp.cpp \
        code_files/protocols/icmp.cpp \
-       code_files/protocols/dhcp.cpp
+       code_files/protocols/dhcp.cpp \
+       code_files/protocols/dns.cpp \
 
 # Object Files
 OBJS = $(SRCS:.cpp=.o)

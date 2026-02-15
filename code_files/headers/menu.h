@@ -45,6 +45,7 @@ private:
     void view_target_config();       // Option 1
     void set_target_config();      // Option 2
     void delete_target_config();     // Option 3
+    void set_dns_config();
     void run_selected_attack(AttackModule* attack);
 };
 

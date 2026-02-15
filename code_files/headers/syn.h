@@ -14,7 +14,8 @@
 #include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <ctime>
-#include "../headers/attack_module.h" // Include the abstract base class
+
+#include "attack_module.h"
 
 // The SYN class now inherits from AttackModule
 class SYN : public AttackModule {

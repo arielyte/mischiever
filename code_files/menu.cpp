@@ -11,6 +11,7 @@
 #include "headers/arp.h"
 #include "headers/icmp.h"
 #include "headers/dhcp.h"
+#include "headers/dns.h"
 
 // --- Constructor & Destructor ---
 Menu::Menu() {
@@ -35,6 +36,7 @@ void Menu::run() {
     attack_modules.push_back(std::unique_ptr<ARP>(new ARP(ARP::BLACKHOLE)));
     attack_modules.push_back(std::unique_ptr<DHCP>(new DHCP(DHCP::STARVATION))); // DHCP with Starvation mode
     attack_modules.push_back(std::unique_ptr<DHCP>(new DHCP(DHCP::RELEASE))); // DHCP with Targeted Release mode
+    attack_modules.push_back(std::unique_ptr<DNS>(new DNS(DNS::SPOOFING)));
 
     // Set default interface automatically if possible
     std::string default_iface = session.helper->get_iface();
@@ -293,7 +295,7 @@ void Menu::show_mitm_menu() {
 
 void Menu::show_dos_menu() {
     int choice = -1;
-    while (choice != 4) {
+    while (choice != 5) {
         display_main_menu_header();
         std::cout << C_BOLD << "           DoS ATTACKS                  " << C_RESET << std::endl;
         std::cout << C_BLUE << "========================================" << C_RESET << std::endl;
@@ -302,7 +304,8 @@ void Menu::show_dos_menu() {
                   << (session.dhcp_starvation_active ? C_GREEN "[ON]" C_RESET : C_RED "[OFF]" C_RESET)
                   << std::endl;
         std::cout << C_GREEN << "[3]" << C_RESET << " ARP Blackhole" << std::endl;
-        std::cout << C_GREEN << "[4]" << C_RESET << " Back" << std::endl;
+        std::cout << C_GREEN << "[4]" << C_RESET << " DNS Spoofing" << std::endl;
+        std::cout << C_GREEN << "[5]" << C_RESET << " Back" << std::endl;
         std::cout << std::endl << C_BOLD << "mischiever/modules/dos > " << C_RESET;
 
         std::cin >> choice;
@@ -408,8 +411,20 @@ void Menu::show_dos_menu() {
                 std::cout << C_RED << "Error: ARP Blackhole module not found!" << C_RESET << std::endl;
                 sleep(2);
             }
+        } else if (choice == 4) {
+            set_dns_config();
+            AttackModule* dns_attack = nullptr;
+            for (const auto& mod : attack_modules) {
+                if (mod->get_name() == "DNS Spoofing") {
+                    dns_attack = mod.get();
+                    break;
+                }
+            }
+            if (dns_attack) {
+                run_selected_attack(dns_attack);
+            }
         }
-        else if (choice != 4) {
+        else if (choice != 5) {
              std::cout << C_RED << "Invalid choice." << C_RESET << std::endl;
              sleep(1);
         }
@@ -723,6 +738,15 @@ void Menu::delete_target_config() {
         std::cout << C_GREEN << "Operation cancelled." << C_RESET << std::endl;
     }
     sleep(1);
+}
+
+void Menu::set_dns_config(){
+    std::cout << "\n==== DNS SPOOF CONFIG ====" << std::endl;
+    std::cout << "Target Domain (e.g. google.com): ";
+    std::cin >> session.dns_target_domain;
+    // TODO: Let the user enter a domain that will translate to an ip that want to be redirected to
+    std::cout << "Spoof IP (Redirect to): ";
+    std::cin >> session.dns_spoofed_ip;
 }
 
 // Dynamic attack runner that takes any AttackModule and runs it using shared Session state

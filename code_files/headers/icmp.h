@@ -6,7 +6,7 @@
 #include <atomic>
 #include <vector>
 
-#include "../headers/attack_module.h"
+#include "attack_module.h"
 
 class ICMP : public AttackModule {
 public:

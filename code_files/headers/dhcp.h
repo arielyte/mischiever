@@ -1,13 +1,14 @@
 #ifndef DHCP_H
 #define DHCP_H
 
-#include "attack_module.h"
 #include <vector>
 #include <thread>
 #include <atomic>
 #include <netinet/ip.h>
 #include <netinet/udp.h>
 #include <netinet/if_ether.h>
+
+#include "attack_module.h"
 
 // --- Custom DHCP Header Structure ---
 struct __attribute__((packed)) dhcp_header { 
