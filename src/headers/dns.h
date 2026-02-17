@@ -43,7 +43,7 @@ private:
     // Private helpers
     bool is_dns_query(uint8_t* buffer, ssize_t len);
     std::string parse_dns_name(uint8_t* buffer, int* offset, ssize_t max_len);
-    void forge_response(int sock, uint8_t* buffer, ssize_t len, std::string spoof_ip);
+    void forge_response(int sock, uint8_t* buffer, ssize_t len, std::string spoof_ip, std::string interface);
 
     // Structure for DNS Header
     struct __attribute__((packed)) dns_header {

