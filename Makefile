@@ -1,37 +1,55 @@
-# Compiler and Flags
-CXX = g++
-CXXFLAGS = -Wall -std=c++14 -pthread -lpcap -lsqlite3
+# ==========================================
+#  MISCHIEVER BUILD SYSTEM
+# ==========================================
 
-# Target Executable
-TARGET = mischiever
+# Compiler Settings
+CXX      = g++
+CXXFLAGS = -Wall -std=c++14 -pthread -I src
+LDFLAGS  = -lpcap -lsqlite3
+
+# Target Binary Name
+TARGET   = mischiever
 
 # Source Files
-SRCS = main.cpp \
-       code_files/helperfuncs.cpp \
-       code_files/menu.cpp \
-       code_files/database.cpp \
-       code_files/sniffer.cpp \
-       code_files/protocols/syn.cpp \
-       code_files/protocols/arp.cpp \
-       code_files/protocols/icmp.cpp \
-       code_files/protocols/dhcp.cpp \
-       code_files/protocols/dns.cpp \
+SRCS = src/main.cpp \
+       src/helperfuncs.cpp \
+       src/menu.cpp \
+       src/database.cpp \
+       src/sniffer.cpp \
+       src/protocols/syn.cpp \
+       src/protocols/arp.cpp \
+       src/protocols/icmp.cpp \
+       src/protocols/dhcp.cpp \
+       src/protocols/dns.cpp
 
-# Object Files
+# Generate Object Names (.cpp -> .o)
 OBJS = $(SRCS:.cpp=.o)
 
-# Default Rule
+# ------------------------------------------
+#  Rules
+# ------------------------------------------
+
+# Default Rule: Build the target
 all: $(TARGET)
 
-# Link Step (MUST START WITH TAB)
+# Link Step (The Final Binary)
 $(TARGET): $(OBJS)
-	$(CXX) -o $(TARGET) $(OBJS) $(CXXFLAGS)
-	rm -f $(OBJS)
+	@echo "[*] Linking objects..."
+	@$(CXX) -o $(TARGET) $(OBJS) $(LDFLAGS)
+	@echo "[+] Build Success: ./$(TARGET)"
+	@echo "[*] Cleaning up intermediate object files..."
+	@rm -f $(OBJS)
 
-# Compile Step (MUST START WITH TAB)
+# Compile Step (Source -> Object)
 %.o: %.cpp
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+	@echo "    Compiling $<..."
+	@$(CXX) $(CXXFLAGS) -c $< -o $@
 
-# Clean Command (MUST START WITH TAB)
+# Full Clean (Binary + Database + Sniffs)
 clean:
-	rm -f $(TARGET)
+	@echo "[*] Removing binary..."
+	@rm -f $(TARGET)
+	@echo "[*] Removing session history..."
+	@rm -f mischiever_history.db
+	@echo "[*] Removing captured packets (sniffs/)..."
+	@sudo rm -rf sniffs
