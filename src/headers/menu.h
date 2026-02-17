@@ -20,6 +20,8 @@ public:
     // The main entry point to run the application
     void run();
 
+    void stop_all_attacks();
+
 private:
     // Application state
     Session session;

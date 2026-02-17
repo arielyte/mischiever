@@ -40,6 +40,8 @@ void ARP::stop() {
         //std::cout << "[*] Restoring System Settings..." << std::endl;
         HelperFunctions::toggle_ip_forwarding(false); // Optional: Keep on if you want
         HelperFunctions::toggle_send_redirects(true); // RE-ENABLE redirects (Default)
+    } else {
+        system("iptables -P FORWARD ACCEPT");
     }
 }
 
@@ -57,6 +59,7 @@ void ARP::run(Session* session) {
         HelperFunctions::toggle_send_redirects(false); // DISABLE redirects for stealth
     } else {
         // "ARP Blackhole" (Kill) Mode: Ensure forwarding is off
+        system("iptables -P FORWARD DROP");
         HelperFunctions::toggle_ip_forwarding(false);
     }
 

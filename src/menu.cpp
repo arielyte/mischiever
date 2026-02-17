@@ -90,6 +90,15 @@ void Menu::run() {
     std::cout << C_YELLOW << "Exiting Mischiever." << C_RESET << std::endl;
 }
 
+void Menu::stop_all_attacks() {
+    for (const auto& mod : attack_modules) {
+        if (mod) {
+            mod->stop();
+        }
+    }
+}
+
+
 // --- Menu Display Functions ---
 
 void Menu::print_logo() {
@@ -447,9 +456,9 @@ void Menu::show_dos_menu() {
 void Menu::show_attack_history() {
     display_main_menu_header();
     std::cout << C_BOLD << "                            ATTACK HISTORY               " << C_RESET << std::endl;
-    std::cout << C_BLUE << "================================================================================================================================" << C_RESET << std::endl;
+    std::cout << C_BLUE << "===========================================================================================================================" << C_RESET << std::endl;
     session.db->print_history();
-    std::cout << C_BLUE << "================================================================================================================================" << C_RESET << std::endl;
+    std::cout << C_BLUE << "===========================================================================================================================" << C_RESET << std::endl;
     std::cout << "\nPress Enter to return..." << std::endl;
     std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     std::cin.get();
