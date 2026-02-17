@@ -7,7 +7,13 @@ void HelperFunctions::clearScreen() {
 }
 
 void HelperFunctions::displayImage(const char* filename) {
-    std::string command = "xdg-open " + std::string(filename) + " > /dev/null 2>&1 &";
+    std::string command;
+    // Helper function to detect Wayland vs X11
+    if (std::getenv("WAYLAND_DISPLAY")) {
+        command = "imv " + std::string(filename) + " > /dev/null 2>&1 &";
+    } else {
+        command = "xdg-open " + std::string(filename) + " > /dev/null 2>&1 &";
+    }
     system(command.c_str());
 }
 

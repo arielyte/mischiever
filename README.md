@@ -95,7 +95,7 @@ sudo apt-get update
 sudo apt-get install libpcap-dev libsqlite3-dev build-essential iptables
 
 # For Arch Linux:
-sudo pacman -S libpcap sqlite base-devel iptables
+sudo pacman -S libpcap sqlite base-devel iptables imv
 
 # 2. Compile
 make
