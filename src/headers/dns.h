@@ -34,7 +34,7 @@ private:
     
     
     // Attack specific variables
-    std::string target_domain; // e.g., "facebook.com"
+    std::string target_domain; // e.g., "neverssl.com"
     std::string spoof_ip;      // The IP we want them to visit (Attacker IP)
 
     // The core DNS spoofing logic

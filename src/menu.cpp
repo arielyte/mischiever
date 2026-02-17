@@ -434,16 +434,21 @@ void Menu::show_dos_menu() {
                 sleep(2);
             }
         } else if (choice == 4) {
-            set_dns_config();
-            AttackModule* dns_attack = nullptr;
-            for (const auto& mod : attack_modules) {
-                if (mod->get_name() == "DNS Spoofing") {
-                    dns_attack = mod.get();
-                    break;
+            if (session.arp_spoof_active) {
+                set_dns_config();
+                AttackModule* dns_attack = nullptr;
+                for (const auto& mod : attack_modules) {
+                    if (mod->get_name() == "DNS Spoofing") {
+                        dns_attack = mod.get();
+                        break;
+                    }
                 }
-            }
-            if (dns_attack) {
-                run_selected_attack(dns_attack);
+                if (dns_attack) {
+                    run_selected_attack(dns_attack);
+                }
+            } else {
+                std::cout << C_RED << "ARP spoofing must be active for DNS spoofing." << C_RESET << std::endl;
+                sleep(2);
             }
         }
         else if (choice != 5) {
