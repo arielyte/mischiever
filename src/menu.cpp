@@ -12,6 +12,7 @@
 #include "headers/icmp.h"
 #include "headers/dhcp.h"
 #include "headers/dns.h"
+#include "headers/nat.h"
 
 // --- Constructor & Destructor ---
 Menu::Menu() {
@@ -37,6 +38,7 @@ void Menu::run() {
     attack_modules.push_back(std::unique_ptr<DHCP>(new DHCP(DHCP::STARVATION))); // DHCP with Starvation mode
     attack_modules.push_back(std::unique_ptr<DHCP>(new DHCP(DHCP::RELEASE))); // DHCP with Targeted Release mode
     attack_modules.push_back(std::unique_ptr<DNS>(new DNS(DNS::SPOOFING)));
+    attack_modules.push_back(std::unique_ptr<NAT>(new NAT(NAT::EXHAUSTION)));
 
     // Set default interface automatically if possible
     std::string default_iface = session.helper->get_iface();
@@ -186,13 +188,14 @@ void Menu::show_attack_modules_menu() {
 
 void Menu::show_floods_menu() {
     int choice = -1;
-    while (choice != 3) {
+    while (choice != 4) {
         display_main_menu_header();
         std::cout << C_BOLD << "           FLOOD ATTACKS                " << C_RESET << std::endl;
         std::cout << C_BLUE << "========================================" << C_RESET << std::endl;
         std::cout << C_GREEN << "[1]" << C_RESET << " SYN Flood" << std::endl;
         std::cout << C_GREEN << "[2]" << C_RESET << " ICMP Ping Flood" << std::endl;
-        std::cout << C_GREEN << "[3]" << C_RESET << " Back" << std::endl;
+        std::cout << C_GREEN << "[3]" << C_RESET << " NAT Exhaustion" << std::endl;
+        std::cout << C_GREEN << "[4]" << C_RESET << " Back" << std::endl;
         std::cout << std::endl << C_BOLD << "mischiever/modules/floods > " << C_RESET;
         
         std::cin >> choice;
@@ -203,6 +206,8 @@ void Menu::show_floods_menu() {
         }
 
         AttackModule* selected_attack = nullptr;
+        bool is_nat_attack = false;
+
         switch (choice) {
             case 1: // SYN
                 for (const auto& mod : attack_modules) {
@@ -214,22 +219,49 @@ void Menu::show_floods_menu() {
                     if (mod->get_name() == "ICMP Flood") selected_attack = mod.get();
                 }
                 break;
-            case 3: return;
+            case 3: // NAT
+                for (const auto& mod : attack_modules) {
+                    if (mod->get_name() == "NAT Table Exhaustion (UDP Flood)") {
+                        selected_attack = mod.get();
+                        is_nat_attack = true;
+                        break;
+                    }
+                }
+                break;
+            case 4: return;
             default:
                 std::cout << C_RED << "Invalid choice." << C_RESET << std::endl;
                 sleep(1);
                 continue;
         }
         
-        // Smoother now
         if (selected_attack) {
-            // Only ask for config if we genuinely don't have a target yet
-            if(session.target_ip.empty()) {
-                std::cout << C_YELLOW << "[!] Target not set. Redirecting to configuration..." << C_RESET << std::endl;
-                set_target_config();
+            if (is_nat_attack) {
+                if (session.gateway_ip.empty()) {
+                    std::cout << C_YELLOW << "[!] Gateway IP not set. Redirecting to configuration..." << C_RESET << std::endl;
+                    set_target_config();
+                }
+                if (!session.gateway_ip.empty()) {
+                    std::string original_target_ip = session.target_ip;
+                    session.target_ip = session.gateway_ip; // HACK
+                    run_selected_attack(selected_attack);
+                    session.target_ip = original_target_ip; // Restore
+                } else {
+                    std::cout << C_RED << "Gateway IP not configured. Attack not started." << C_RESET << std::endl;
+                    sleep(1);
+                }
+            } else {
+                if (session.target_ip.empty()) {
+                    std::cout << C_YELLOW << "[!] Target IP not set. Redirecting to configuration..." << C_RESET << std::endl;
+                    set_target_config();
+                }
+                if (!session.target_ip.empty()) {
+                    run_selected_attack(selected_attack);
+                } else {
+                    std::cout << C_RED << "Target IP not configured. Attack not started." << C_RESET << std::endl;
+                    sleep(1);
+                }
             }
-            std::cout << C_GREEN << selected_attack->get_name() << " attack started." << C_RESET << std::endl;
-            run_selected_attack(selected_attack);
         }
     }
 }
@@ -809,7 +841,7 @@ void Menu::run_selected_attack(AttackModule* attack) {
     // Use the run attack inside the module's class, passing the shared session state
     attack->run(&session);
     
-    std::cout << C_YELLOW << "\nAttack is running. Press [Enter] to stop it." << C_RESET << std::endl;
+    std::cout << C_YELLOW << "Attack is running. Press [Enter] to stop it." << C_RESET << std::endl;
     std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     std::cin.get(); 
 

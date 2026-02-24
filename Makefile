@@ -20,7 +20,8 @@ SRCS = src/main.cpp \
        src/protocols/arp.cpp \
        src/protocols/icmp.cpp \
        src/protocols/dhcp.cpp \
-       src/protocols/dns.cpp
+       src/protocols/dns.cpp \
+       src/protocols/nat.cpp
 
 # Generate Object Names (.cpp -> .o)
 OBJS = $(SRCS:.cpp=.o)
