@@ -55,6 +55,11 @@ Mischiever leverages a unified ARP engine with dual operating modes:
 * **SYN Flood:** Uses **Raw Sockets (`IP_HDRINCL`)** to flood targets with "HALF_OPEN" TCP connections using spoofed Source IPs.
 * **ICMP Ping Flood:** Generates a high-throughput stream of ICMP Echo Requests to consume target CPU and bandwidth.
 
+#### 7. Stateful NAT Exhaustion (Gateway DoS)
+* **Technique:** A multithreaded, high-velocity UDP flood designed to attack the gateway's Port Address Translation (PAT) engine.
+* **Mechanism:** Bypasses basic QoS and rate-limiting by randomizing the internal Source IP, Source Port, Destination IP, and Destination Port for every single packet. This forces the router to generate a unique 5-tuple state entry in its memory for each forged packet.
+* **Impact:** Rapidly consumes all available ephemeral public ports (or exhausts router RAM), silently dropping any new legitimate internet connections from the LAN without physically severing the local network link, crashing the whole ass network in seconds.
+
 ---
 
 ### ⚙️ System Automation & Stealth
