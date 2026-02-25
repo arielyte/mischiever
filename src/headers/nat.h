@@ -5,7 +5,9 @@
 #include <vector>
 #include <thread>
 #include <atomic>
+#include <cstdint>
 #include "attack_module.h"
+#include "../headers/session.h"
 
 class NAT : public AttackModule {
 public:
@@ -19,7 +21,7 @@ public:
     void stop() override;
 
 private:
-    void exhaust_loop(std::string local_ip, int thread_id);
+    void exhaust_loop(std::string local_ip, std::string interface_name, std::vector<uint8_t> gateway_mac, int thread_id);
     std::string generate_random_local_ip(const std::string& local_ip);
     std::string generate_random_public_ip();
 

