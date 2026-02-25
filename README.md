@@ -57,8 +57,8 @@ Mischiever leverages a unified ARP engine with dual operating modes:
 
 #### 7. Stateful NAT Exhaustion (Gateway DoS)
 * **Technique:** A multithreaded, high-velocity UDP flood designed to attack the gateway's Port Address Translation (PAT) engine.
-* **Mechanism:** Bypasses basic QoS and rate-limiting by randomizing the internal Source IP, Source Port, Destination IP, and Destination Port for every single packet. This forces the router to generate a unique 5-tuple state entry in its memory for each forged packet.
-* **Impact:** Rapidly consumes all available ephemeral public ports (or exhausts router RAM), silently dropping any new legitimate internet connections from the LAN without physically severing the local network link, crashing the whole ass network in seconds.
+* **Mechanism:** Bypasses basic QoS and rate-limiting by randomizing the internal Source IP, Source MAC, Source Port, Destination IP, and Destination Port for every single packet. This forces the router to generate a unique 5-tuple state entry in its memory for each forged packet.
+* **Impact:** Rapidly consumes all available ephemeral public ports (or exhausts router RAM), silently dropping any new legitimate internet connections from the LAN without physically severing the local network link.
 
 ---
 
