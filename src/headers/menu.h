@@ -48,6 +48,7 @@ private:
     void set_target_config();      // Option 2
     void delete_target_config();     // Option 3
     void set_dns_config();
+    bool confirm_disruptive_action(const std::string& action_name);
     void run_selected_attack(AttackModule* attack);
 };
 

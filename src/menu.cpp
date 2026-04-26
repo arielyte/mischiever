@@ -312,6 +312,11 @@ void Menu::show_mitm_menu() {
                     
                     // Re-check after config
                     if (!session.target_ip.empty() && !session.gateway_ip.empty()) {
+                        if (!confirm_disruptive_action(arp_attack->get_name())) {
+                            sleep(1);
+                            continue;
+                        }
+
                         // Log before running
                         std::string my_ip = session.helper->get_local_ip(session.interface.c_str());
                         std::string source_log = my_ip.empty() ? "Unknown (You)" : my_ip + " (You)";
@@ -422,6 +427,11 @@ void Menu::show_dos_menu() {
                     }
                     
                     if (!session.interface.empty()) {
+                        if (!confirm_disruptive_action(dhcp_starve_attack->get_name())) {
+                            sleep(1);
+                            continue;
+                        }
+
                         std::string my_ip = session.helper->get_local_ip(session.interface.c_str());
                         std::string source_log = my_ip.empty() ? "Unknown (You)" : my_ip + " (You)";
                         session.db->log_attack(dhcp_starve_attack->get_name(), source_log, "Network Pool");
@@ -820,6 +830,108 @@ void Menu::set_dns_config() {
     }
 }
 
+bool Menu::confirm_disruptive_action(const std::string& action_name) {
+    std::vector<std::string> side_effects;
+    bool show_target = false;
+    bool show_target_mac = false;
+    bool show_gateway = false;
+    bool show_gateway_mac = false;
+    bool show_dhcp_server = false;
+    bool show_dns = false;
+
+    if (action_name == "SYN Flood") {
+        show_target = true;
+        side_effects.push_back("Sends raw TCP SYN packets to the configured target on port 80.");
+        side_effects.push_back("Generates continuous traffic until you stop it.");
+    } else if (action_name == "ICMP Flood") {
+        show_target = true;
+        side_effects.push_back("Sends ICMP Echo Request packets to the configured target.");
+        side_effects.push_back("Generates continuous traffic until you stop it.");
+    } else if (action_name == "NAT Table Exhaustion (UDP Flood)") {
+        show_gateway = true;
+        show_gateway_mac = true;
+        side_effects.push_back("Sends randomized UDP traffic toward the configured gateway.");
+        side_effects.push_back("Uses multiple raw-socket sender threads until you stop it.");
+    } else if (action_name == "ARP Spoof") {
+        show_target = true;
+        show_target_mac = true;
+        show_gateway = true;
+        show_gateway_mac = true;
+        side_effects.push_back("Sends repeated forged ARP replies to the target and gateway.");
+        side_effects.push_back("Enables IPv4 forwarding and disables ICMP send redirects while active.");
+    } else if (action_name == "ARP Blackhole") {
+        show_target = true;
+        show_target_mac = true;
+        show_gateway = true;
+        show_gateway_mac = true;
+        side_effects.push_back("Sends repeated forged ARP replies to the target and gateway.");
+        side_effects.push_back("Sets the host FORWARD policy to DROP and disables IPv4 forwarding while active.");
+    } else if (action_name == "DHCP Starvation") {
+        side_effects.push_back("Sends DHCP Discover packets with randomized MAC addresses.");
+        side_effects.push_back("May consume available DHCP leases on the local LAN until stopped.");
+    } else if (action_name == "DHCP Release") {
+        show_target = true;
+        show_target_mac = true;
+        show_gateway_mac = true;
+        show_dhcp_server = true;
+        side_effects.push_back("Sends repeated DHCP Release packets using the configured target identity.");
+        side_effects.push_back("May interrupt the target device's DHCP lease in the lab network.");
+    } else if (action_name == "DNS Spoofing") {
+        show_target = true;
+        show_target_mac = true;
+        show_gateway = true;
+        show_gateway_mac = true;
+        show_dns = true;
+        side_effects.push_back("Watches DNS queries and sends forged A-record responses for matching names.");
+        side_effects.push_back("Inserts an iptables rule that drops forwarded UDP destination port 53 traffic while active.");
+    } else {
+        side_effects.push_back("Starts a disruptive networking module.");
+    }
+
+    auto value_or_unset = [](const std::string& value) {
+        return value.empty() ? std::string("Not Set") : value;
+    };
+
+    auto print_field = [&](const std::string& label, const std::string& value) {
+        std::cout << "  " << std::left << std::setw(18) << label << ": "
+                  << (value.empty() ? C_YELLOW : C_GREEN)
+                  << value_or_unset(value) << C_RESET << std::endl;
+    };
+
+    std::cout << "\n" << C_RED << "================ LAB ACTION CONFIRMATION ================" << C_RESET << std::endl;
+    print_field("Action", action_name);
+    print_field("Interface", session.interface);
+    if (show_target) print_field("Target IP", session.target_ip);
+    if (show_target_mac) print_field("Target MAC", session.target_mac);
+    if (show_gateway) print_field("Gateway IP", session.gateway_ip);
+    if (show_gateway_mac) print_field("Gateway MAC", session.gateway_mac);
+    if (show_dhcp_server) print_field("DHCP Server IP", session.dhcp_server_ip);
+    if (show_dns) {
+        print_field("DNS Domain", session.dns_target_domain);
+        print_field("DNS Spoofed IP", session.dns_spoofed_ip);
+    }
+
+    std::cout << "\n" << C_YELLOW << "Expected side effects:" << C_RESET << std::endl;
+    for (const auto& effect : side_effects) {
+        std::cout << "  - " << effect << std::endl;
+    }
+
+    std::cout << "\n" << C_RED
+              << "[!] Authorized LAN/lab use only. Do not run this on public, third-party, or production networks."
+              << C_RESET << std::endl;
+    std::cout << C_BOLD << "Type CONFIRM to start, or anything else to cancel: " << C_RESET;
+
+    std::string confirmation;
+    std::getline(std::cin >> std::ws, confirmation);
+
+    if (confirmation != "CONFIRM") {
+        std::cout << C_YELLOW << "Action cancelled. No module was started or logged." << C_RESET << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
 // Dynamic attack runner that takes any AttackModule and runs it using shared Session state
 void Menu::run_selected_attack(AttackModule* attack) {
     if (!attack) return;
@@ -827,6 +939,11 @@ void Menu::run_selected_attack(AttackModule* attack) {
     if (session.target_ip.empty()) {
         std::cerr << C_RED << "Target IP is not set! Please configure it first." << C_RESET << std::endl;
         sleep(2);
+        return;
+    }
+
+    if (!confirm_disruptive_action(attack->get_name())) {
+        sleep(1);
         return;
     }
 
@@ -842,8 +959,8 @@ void Menu::run_selected_attack(AttackModule* attack) {
     attack->run(&session);
     
     std::cout << C_YELLOW << "Attack is running. Press [Enter] to stop it." << C_RESET << std::endl;
-    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-    std::cin.get(); 
+    std::string stop_input;
+    std::getline(std::cin, stop_input);
 
     attack->stop();
     std::cout << C_GREEN << "Attack stopped." << C_RESET << std::endl;
