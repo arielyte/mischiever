@@ -1,7 +1,15 @@
-# Prerequisites
+# Project build artifacts
+/mischiever
+/build/
+
+# Project runtime artifacts
+/mischiever_history.db
+/sniffs/*.pcap
+
+# Prerequisites / dependency files
 *.d
 
-# Compiled Object files
+# Compiled object files
 *.slo
 *.lo
 *.o
@@ -30,3 +38,10 @@
 *.exe
 *.out
 *.app
+
+# Editor / OS temporary files
+*~
+*.swp
+*.swo
+.DS_Store
+Thumbs.db

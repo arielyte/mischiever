@@ -3,9 +3,13 @@
 # ==========================================
 
 # Compiler Settings
-CXX      = g++
-CXXFLAGS = -Wall -std=c++14 -pthread -I src
-LDFLAGS  = -lpcap -lsqlite3
+CXX           = g++
+CONFIG       ?= default
+BUILD_DIR     = build/$(CONFIG)
+CXXFLAGS_BASE = -Wall -std=c++14 -pthread -I src
+CXXFLAGS     ?= $(CXXFLAGS_BASE)
+CPPFLAGS     += -MMD -MP
+LDFLAGS      += -lpcap -lsqlite3
 
 # Target Binary Name
 TARGET   = mischiever
@@ -23,12 +27,15 @@ SRCS = src/main.cpp \
        src/protocols/dns.cpp \
        src/protocols/nat.cpp
 
-# Generate Object Names (.cpp -> .o)
-OBJS = $(SRCS:.cpp=.o)
+# Generate build artifact names under build/<config>/
+OBJS = $(patsubst %.cpp,$(BUILD_DIR)/%.o,$(SRCS))
+DEPS = $(OBJS:.o=.d)
 
 # ------------------------------------------
 #  Rules
 # ------------------------------------------
+
+.PHONY: all debug release sanitize clean distclean
 
 # Default Rule: Build the target
 all: $(TARGET)
@@ -38,19 +45,37 @@ $(TARGET): $(OBJS)
 	@echo "[*] Linking objects..."
 	@$(CXX) -o $(TARGET) $(OBJS) $(LDFLAGS)
 	@echo "[+] Build Success: ./$(TARGET)"
-	@echo "[*] Cleaning up intermediate object files..."
-	@rm -f $(OBJS)
 
 # Compile Step (Source -> Object)
-%.o: %.cpp
+$(BUILD_DIR)/%.o: %.cpp
 	@echo "    Compiling $<..."
-	@$(CXX) $(CXXFLAGS) -c $< -o $@
+	@mkdir -p $(@D)
+	@$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
-# Full Clean (Binary + Database + Sniffs)
+# Debug build: symbols, no optimization
+debug:
+	@$(MAKE) CONFIG=debug CXXFLAGS="$(CXXFLAGS_BASE) -O0 -g -DDEBUG" all
+
+# Release build: optimized binary
+release:
+	@$(MAKE) CONFIG=release CXXFLAGS="$(CXXFLAGS_BASE) -O2 -DNDEBUG" all
+
+# Sanitizer build: address and undefined behavior checks
+sanitize:
+	@$(MAKE) CONFIG=sanitize CXXFLAGS="$(CXXFLAGS_BASE) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer" LDFLAGS="$(LDFLAGS) -fsanitize=address,undefined" all
+
+# Clean generated build products only
 clean:
 	@echo "[*] Removing binary..."
 	@rm -f $(TARGET)
+	@echo "[*] Removing build artifacts..."
+	@rm -rf build
+
+# Full clean including generated runtime artifacts
+distclean: clean
 	@echo "[*] Removing session history..."
 	@rm -f mischiever_history.db
-	@echo "[*] Removing captured packets (sniffs/)..."
-	@sudo rm -rf sniffs
+	@echo "[*] Removing captured packet files..."
+	@rm -f sniffs/*.pcap
+
+-include $(DEPS)
