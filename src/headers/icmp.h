@@ -25,6 +25,9 @@ public:
 private:
     // Module-specific parameters
     int packet_count;
+    int max_duration_seconds;
+    int packets_per_second;
+    int enobufs_backoff_ms;
     Mode current_mode;
 
     // Threading and control

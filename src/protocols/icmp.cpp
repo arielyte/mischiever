@@ -5,10 +5,19 @@
 #include <netinet/ip.h>
 #include <netinet/ip_icmp.h>
 #include <arpa/inet.h>
+#include <cerrno>
+#include <chrono>
+#include <thread>
 
 #include "../headers/icmp.h"
 
-ICMP::ICMP(Mode mode) : packet_count(-1), current_mode(mode), stop_flag(false) {}
+ICMP::ICMP(Mode mode)
+    : packet_count(3000),
+      max_duration_seconds(30),
+      packets_per_second(100),
+      enobufs_backoff_ms(50),
+      current_mode(mode),
+      stop_flag(false) {}
 
 ICMP::~ICMP() {
     stop();
@@ -62,24 +71,76 @@ void ICMP::flood_loop(std::string target_ip_str) {
     icmp->un.echo.id = htons(rand() % 65535);
     memset(packet + sizeof(struct icmphdr), 'A', 64);
 
-    long current_packet_count = 0;
+    long attempted_packets = 0;
+    long sent_packets = 0;
+    long failed_packets = 0;
+    long enobufs_count = 0;
+
+    const int effective_packets_per_second = packets_per_second > 0 ? packets_per_second : 1;
+    const int effective_enobufs_backoff_ms = enobufs_backoff_ms > 0 ? enobufs_backoff_ms : 1;
+    const auto start_time = std::chrono::steady_clock::now();
+    auto next_send_time = start_time;
+    auto last_error_log = start_time - std::chrono::seconds(1);
+    const auto send_interval = std::chrono::microseconds(1000000 / effective_packets_per_second);
+    std::string stop_reason = "stopped by user";
 
     while (!stop_flag) {
-        icmp->un.echo.sequence = htons(current_packet_count);
+        const auto now = std::chrono::steady_clock::now();
+        if (max_duration_seconds > 0 &&
+            now - start_time >= std::chrono::seconds(max_duration_seconds)) {
+            stop_reason = "max duration reached";
+            break;
+        }
+        if (packet_count > 0 && attempted_packets >= packet_count) {
+            stop_reason = "max packet count reached";
+            break;
+        }
+
+        if (now < next_send_time) {
+            std::this_thread::sleep_until(next_send_time);
+        }
+        if (stop_flag) {
+            break;
+        }
+        next_send_time += send_interval;
+
+        icmp->un.echo.sequence = htons(attempted_packets);
         icmp->checksum = 0;
         icmp->checksum = checksum(packet, sizeof(packet));
 
         if (sendto(sock, packet, sizeof(packet), 0, (struct sockaddr*)&dest, sizeof(dest)) < 0) {
-            perror("ICMP send failed");
+            int saved_errno = errno;
+            failed_packets++;
+            if (saved_errno == ENOBUFS) {
+                enobufs_count++;
+                std::this_thread::sleep_for(std::chrono::milliseconds(effective_enobufs_backoff_ms));
+            }
+
+            const auto error_now = std::chrono::steady_clock::now();
+            if (error_now - last_error_log >= std::chrono::seconds(1)) {
+                std::cerr << C_YELLOW << "[!] ICMP send failed: "
+                          << std::strerror(saved_errno)
+                          << " (further errors are rate-limited)" << C_RESET << std::endl;
+                last_error_log = error_now;
+            }
+        } else {
+            sent_packets++;
         }
 
-        current_packet_count++;
-        if (packet_count > 0 && current_packet_count >= packet_count) {
-            break; 
-        }
+        attempted_packets++;
     }
 
     close(sock);
+
+    const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - start_time).count();
+    std::cout << C_GREEN << "[+] ICMP Flood stopped (" << stop_reason << "). "
+              << "Attempted: " << attempted_packets
+              << ", sent: " << sent_packets
+              << ", failed: " << failed_packets
+              << ", ENOBUFS: " << enobufs_count
+              << ", elapsed: " << (elapsed_ms / 1000.0) << "s"
+              << C_RESET << std::endl;
 }
 
 unsigned short ICMP::checksum(void* b, int len) {
